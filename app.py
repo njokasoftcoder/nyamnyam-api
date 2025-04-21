@@ -1,38 +1,73 @@
 from flask import Flask, request, jsonify
-from sklearn.ensemble import GradientBoostingClassifier
-import numpy as np
+import random
 
 app = Flask(__name__)
 
 class MobileFootballPredictor:
     def __init__(self):
-        self.model = GradientBoostingClassifier(n_estimators=100)
-        self.model.classes_ = np.array([0, 1, 2])  # Home, Draw, Away
-        self.model.n_classes_ = 3
-        self.model.estimators_ = np.empty((100, 3), dtype=object)  # Dummy placeholders
+        self.model_name = "Nyam Nyam Confidence Fire Prediction"
 
-    def predict(self, match_data):
-        # Fake predictions for now (replace with actual model logic)
-        return {
-            "Category": "Outcome",
-            "Prediction": "Draw",
-            "Compromise Prediction": "Double Chance (Home/Draw)",
-            "Score Prediction": "1-1",
-            "Goal Market": "Under 2.5",
-            "Confidence": "Medium"
+    def predict_match(self, home_team, away_team):
+        # Simulate scraping and model logic
+        outcome_probs = {
+            "home_win": round(random.uniform(0.3, 0.6), 2),
+            "draw": round(random.uniform(0.2, 0.4), 2),
+            "away_win": round(random.uniform(0.2, 0.5), 2)
         }
 
+        # Pick top outcome
+        prediction = max(outcome_probs, key=outcome_probs.get)
+
+        # Compromise logic
+        compromise = "Draw" if abs(outcome_probs["home_win"] - outcome_probs["away_win"]) < 0.1 else prediction.capitalize()
+
+        # Score simulation
+        score_map = {
+            "home_win": f"{random.randint(1, 3)}-{random.randint(0, 1)}",
+            "draw": f"{random.randint(0, 2)}-{random.randint(0, 2)}",
+            "away_win": f"{random.randint(0, 1)}-{random.randint(1, 3)}"
+        }
+
+        # Goal market logic
+        total_goals = sum(int(x) for x in score_map[prediction].split("-"))
+        goal_market = "Over 2.5" if total_goals > 2 else "Under 2.5"
+
+        # Confidence logic
+        confidence_score = max(outcome_probs.values())
+        if confidence_score > 0.55:
+            confidence = "High"
+        elif confidence_score > 0.45:
+            confidence = "Medium"
+        else:
+            confidence = "Low"
+
+        return {
+            "model_name": self.model_name,
+            "category": prediction.replace("_", " ").title(),
+            "compromise_prediction": compromise,
+            "score_prediction": score_map[prediction],
+            "goal_market": goal_market,
+            "confidence": confidence
+        }
+
+# Initialize predictor
 predictor = MobileFootballPredictor()
 
-@app.route('/predict', methods=['POST'])
+@app.route("/", methods=["GET"])
+def home():
+    return "Nyam Nyam Confidence Fire Prediction is 🔥 live."
+
+@app.route("/predict", methods=["POST"])
 def predict():
     data = request.get_json()
-    home = data.get("home_team")
-    away = data.get("away_team")
-    if not home or not away:
-        return jsonify({"error": "Missing team names"}), 400
-    prediction = predictor.predict(data)
-    return jsonify(prediction)
+    home_team = data.get("home_team")
+    away_team = data.get("away_team")
+
+    if not home_team or not away_team:
+        return jsonify({"error": "Both 'home_team' and 'away_team' are required."}), 400
+
+    result = predictor.predict_match(home_team, away_team)
+    return jsonify(result)
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=10000)
+    app.run(debug=True)
