@@ -2,7 +2,7 @@ from flask import Flask, request, jsonify
 import random
 import os
 
-app = Flask(__name__)
+app = Flask(__name__, static_url_path='/static')
 
 class MobileFootballPredictor:
     def __init__(self):
@@ -70,7 +70,19 @@ def predict():
     result = predictor.predict_match(home_team, away_team)
     return jsonify(result)
 
-# Updated run command for deployment
+@app.route("/logo", methods=["GET"])
+def show_logo():
+    return '''
+    <html>
+        <head><title>Nyam Nyam Logo</title></head>
+        <body style="text-align:center; font-family:sans-serif;">
+            <h1>Nyam Nyam Confidence Fire Prediction 🔥</h1>
+            <img src="/static/logo.png" alt="Nyam Nyam Logo" width="300">
+        </body>
+    </html>
+    '''
+
+# Run server
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=5000)
+    app.run(host="0.0.0.0", port=port)
