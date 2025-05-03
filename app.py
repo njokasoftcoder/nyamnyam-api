@@ -5,6 +5,7 @@ import os
 
 app = Flask(__name__, static_url_path='/static')
 
+# Replace with your Odds API key
 ODDS_API_KEY = "4ec57c87c864060fa3194d40366e2bc8"
 
 class MobileFootballPredictor:
@@ -36,45 +37,25 @@ class MobileFootballPredictor:
             pass
         return None
 
-    def fetch_understat_xg(self, home_team, away_team):
-        # Mock xG data (normally scraped)
-        return {"home_xg": random.uniform(1.0, 2.0), "away_xg": random.uniform(0.8, 1.8)}
-
-    def fetch_footystats_trends(self, home_team, away_team):
-        # Mock trends
-        return {"draw_rate": random.uniform(0.2, 0.4), "over25": random.uniform(0.55, 0.75)}
+    def generate_score(self, prediction):
+        if prediction == "home_win":
+            home = random.randint(2, 4)
+            away = random.randint(0, 1)
+        elif prediction == "draw":
+            home = away = random.randint(0, 2)
+        else:  # away_win
+            home = random.randint(0, 1)
+            away = random.randint(2, 4)
+        return f"{home}-{away}"
 
     def predict_match(self, home_team, away_team, odds):
         home_odds, draw_odds, away_odds = odds
 
+        # Convert odds to implied probabilities
         total_inverse = (1 / home_odds) + (1 / draw_odds) + (1 / away_odds)
         home_prob = round((1 / home_odds) / total_inverse, 2)
         draw_prob = round((1 / draw_odds) / total_inverse, 2)
         away_prob = round((1 / away_odds) / total_inverse, 2)
-
-        # Add data from other APIs
-        try:
-            xg = self.fetch_understat_xg(home_team, away_team)
-        except:
-            xg = {"home_xg": 1.4, "away_xg": 1.4}
-
-        try:
-            trends = self.fetch_footystats_trends(home_team, away_team)
-        except:
-            trends = {"draw_rate": 0.3, "over25": 0.6}
-
-        xg_delta = xg["home_xg"] - xg["away_xg"]
-        if xg_delta > 0.3:
-            home_prob += 0.03
-        elif xg_delta < -0.3:
-            away_prob += 0.03
-
-        draw_prob += trends["draw_rate"] * 0.1
-
-        total = home_prob + draw_prob + away_prob
-        home_prob = round(home_prob / total, 2)
-        draw_prob = round(draw_prob / total, 2)
-        away_prob = round(away_prob / total, 2)
 
         outcome_probs = {
             "home_win": home_prob,
@@ -85,13 +66,8 @@ class MobileFootballPredictor:
         prediction = max(outcome_probs, key=outcome_probs.get)
         compromise = "Draw" if abs(home_prob - away_prob) < 0.1 else prediction.replace("_", " ").title()
 
-        score_map = {
-            "home_win": f"{random.randint(2, 4)}-{random.randint(0, 1)}",
-            "draw": f"{random.randint(0, 2)}-{random.randint(0, 2)}",
-            "away_win": f"{random.randint(0, 1)}-{random.randint(2, 4)}"
-        }
-
-        total_goals = sum(int(x) for x in score_map[prediction].split("-"))
+        score_line = self.generate_score(prediction)
+        total_goals = sum(int(x) for x in score_line.split("-"))
         goal_market = "Over 2.5" if total_goals > 2 else "Under 2.5"
 
         confidence_score = max(outcome_probs.values())
@@ -101,7 +77,7 @@ class MobileFootballPredictor:
             "model_name": self.model_name,
             "Main Prediction": prediction.replace("_", " ").title(),
             "Compromise Prediction": compromise,
-            "Score Line": score_map[prediction],
+            "Score Line": score_line,
             "Goal Market": goal_market,
             "Confidence Level": confidence,
             "logo_url": request.host_url.rstrip("/") + "/static/logo.png"
@@ -127,7 +103,7 @@ def predict():
     data = request.get_json()
     home_team = data.get("home_team")
     away_team = data.get("away_team")
-    manual_odds = data.get("odds")
+    manual_odds = data.get("odds")  # Optional manual odds
 
     if not home_team or not away_team:
         return jsonify({"error": "Both 'home_team' and 'away_team' are required."}), 400
@@ -136,7 +112,7 @@ def predict():
 
     if not odds and manual_odds:
         try:
-            odds = tuple(map(float, manual_odds))
+            odds = tuple(map(float, manual_odds))  # (home, draw, away)
         except:
             return jsonify({"error": "Invalid manual odds format. Use [home, draw, away]."}), 400
     elif not odds:
@@ -147,4 +123,3 @@ def predict():
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8000, debug=True)
-
