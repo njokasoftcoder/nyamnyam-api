@@ -1,227 +1,216 @@
 from flask import Flask, request, jsonify
 import requests
-import random
 import os
-from typing import Optional, Tuple, Dict, List
+from functools import lru_cache
+import logging
+from typing import Dict, Tuple, Optional
 import statistics
+import random
 
-app = Flask(__name__, static_url_path='/static')
+app = Flask(__name__)
 
 # Configuration
 ODDS_API_KEY = os.getenv("ODDS_API_KEY", "4ec57c87c864060fa3194d40366e2bc8")
 HISTORICAL_DATA_PATH = "historical_results.csv"
 
-class RobustFootballPredictor:
+class EnhancedFootballPredictor:
     def __init__(self):
-        self.model_name = "Nyam Nyam Confidence Fire Prediction v3"
-        self.league_map = {
-            "Liga Portugal": "soccer_portugal_primeira_liga",
-            "Premier League": "soccer_epl"
-        }
+        self.model_name = "Nyam Nyam v5 (Enhanced)"
         
-        # League-specific parameters
+        # Enhanced league configuration
         self.league_params = {
             "Liga Portugal": {
-                "strong_teams": ["Benfica", "Porto", "Sporting"],
-                "draw_adjustment": 0.85,  # Reduce draw probability
-                "home_advantage": 1.1     # Slight boost for home teams
-            },
-            "Premier League": {
-                "strong_teams": ["Man City", "Liverpool", "Arsenal"],
-                "draw_adjustment": 1.0,
-                "home_advantage": 1.15
+                "tiers": {
+                    "Tier 1": ["Benfica", "Porto", "Sporting"],
+                    "Tier 2": ["Braga", "Vitória SC", "Boavista"],
+                    "Tier 3": ["Estoril", "Famalicão", "Gil Vicente", "Casa Pia"]
+                },
+                "goal_expectations": {
+                    "Tier 1_home": 2.1,
+                    "Tier 1_away": 1.8,
+                    "Tier 2_home": 1.5,
+                    "Tier 2_away": 1.2,
+                    "Tier 3_home": 1.1,
+                    "Tier 3_away": 0.9
+                },
+                "matchup_adjustments": {
+                    "Tier 1_vs_Tier 3": {"home_win_boost": 0.15, "away_win_penalty": -0.10},
+                    "Tier 2_vs_Tier 3": {"home_win_boost": 0.10, "draw_boost": 0.05}
+                },
+                "base_draw_prob": 0.25,
+                "home_advantage": 0.12,
+                "form_weight": 0.3
             }
         }
         
-        # Load historical data for validation
         self.historical_data = self._load_historical_data()
+        logging.basicConfig(filename='predictions.log', level=logging.INFO)
 
-    def _load_historical_data(self) -> Dict[str, List]:
-        """Load historical match results for validation"""
+    def _load_historical_data(self) -> Dict:
+        """Load historical match results"""
         try:
             import pandas as pd
-            df = pd.read_csv(HISTORICAL_DATA_PATH)
-            return df.to_dict('records')
-        except:
+            return pd.read_csv(HISTORICAL_DATA_PATH).to_dict('records')
+        except Exception as e:
+            logging.error(f"Failed loading historical data: {str(e)}")
             return []
 
-    def _validate_against_history(self, home_team: str, away_team: str, league: str) -> Dict:
-        """Check historical H2H and team performance"""
-        matches = [m for m in self.historical_data 
-                  if m['league'] == league
-                  and ((m['home_team'] == home_team and m['away_team'] == away_team)
-                      or (m['home_team'] == away_team and m['away_team'] == home_team))]
-        
-        if not matches:
-            return {}
-            
-        home_wins = sum(1 for m in matches if m['home_team'] == home_team and m['result'] == 'H')
-        away_wins = sum(1 for m in matches if m['away_team'] == away_team and m['result'] == 'A')
-        draws = len(matches) - home_wins - away_wins
-        
-        return {
-            "home_win_pct": home_wins / len(matches),
-            "away_win_pct": away_wins / len(matches),
-            "draw_pct": draws / len(matches)
-        }
+    def _get_team_tier(self, team: str, league: str) -> str:
+        """Classify team into strength tier"""
+        for tier, teams in self.league_params[league]["tiers"].items():
+            if team in teams:
+                return tier
+        return "Tier 4"  # Default for unclassified teams
 
-    def fetch_odds(self, home_team: str, away_team: str, league: str) -> Optional[Tuple[float, float, float]]:
-        """Fetch best available odds with league-specific endpoint"""
-        sport_key = self.league_map.get(league, "soccer_epl")
-        url = f"https://api.the-odds-api.com/v4/sports/{sport_key}/odds"
+    def _get_expected_goals(self, home_team: str, away_team: str, league: str) -> Tuple[float, float]:
+        """Get expected goals based on team tiers"""
+        params = self.league_params.get(league, {})
+        home_tier = self._get_team_tier(home_team, league)
+        away_tier = self._get_team_tier(away_team, league)
         
+        home_exp = params.get("goal_expectations", {}).get(f"{home_tier}_home", 1.2)
+        away_exp = params.get("goal_expectations", {}).get(f"{away_tier}_away", 1.0)
+        
+        return home_exp, away_exp
+
+    def _apply_matchup_adjustments(self, probs: Dict, home_team: str, away_team: str, league: str) -> Dict:
+        """Adjust probabilities based on team tiers matchup"""
+        matchup = f"{self._get_team_tier(home_team, league)}_vs_{self._get_team_tier(away_team, league)}"
+        adjustments = self.league_params[league].get("matchup_adjustments", {}).get(matchup, {})
+        
+        probs["home_win"] += adjustments.get("home_win_boost", 0)
+        probs["away_win"] += adjustments.get("away_win_penalty", 0)
+        probs["draw"] += adjustments.get("draw_boost", 0)
+        
+        # Normalize to ensure valid probabilities
+        total = sum(probs.values())
+        return {k: v/total for k, v in probs.items()}
+
+    @lru_cache(maxsize=32)
+    def _get_cached_odds(self, home_team: str, away_team: str, league: str) -> Optional[Tuple[float, float, float]]:
+        """Fetch odds with caching"""
         try:
+            # Use appropriate API endpoint based on league
+            sport_key = "soccer_portugal_primeira_liga" if league == "Liga Portugal" else "soccer_epl"
+            url = f"https://api.the-odds-api.com/v4/sports/{sport_key}/odds"
+            
             response = requests.get(url, params={
+                "apiKey": ODDS_API_KEY,
                 "regions": "eu",
-                "markets": "h2h",
-                "apiKey": ODDS_API_KEY
+                "markets": "h2h"
             }, timeout=10)
-            response.raise_for_status()
             
             for match in response.json():
                 if (home_team.lower() in match["home_team"].lower() and 
                     away_team.lower() in match["away_team"].lower()):
-                    
-                    # Get best odds across all bookmakers
-                    outcomes = []
-                    for bookmaker in match["bookmakers"]:
-                        outcomes.extend(bookmaker["markets"][0]["outcomes"])
-                    
-                    home_odds = min(o["price"] for o in outcomes if o["name"] == match["home_team"])
-                    draw_odds = min(o["price"] for o in outcomes if o["name"] == "Draw")
-                    away_odds = min(o["price"] for o in outcomes if o["name"] == match["away_team"])
-                    
-                    return home_odds, draw_odds, away_odds
+                    outcomes = match["bookmakers"][0]["markets"][0]["outcomes"]
+                    return (
+                        next(o["price"] for o in outcomes if o["name"] == match["home_team"]),
+                        next(o["price"] for o in outcomes if o["name"] == "Draw"),
+                        next(o["price"] for o in outcomes if o["name"] == match["away_team"])
+                    )
         except Exception as e:
-            app.logger.error(f"Odds API Error: {str(e)}")
+            logging.error(f"Odds API error: {str(e)}")
         return None
 
-    def predict_match(self, home_team: str, away_team: str, odds: Tuple[float, float, float], league: str) -> Dict:
-        """Core prediction logic with historical validation"""
-        # Convert odds to probabilities
+    def _get_historical_stats(self, home_team: str, away_team: str) -> Dict:
+        """Calculate historical performance metrics"""
+        matches = [m for m in self.historical_data 
+                  if (m["home_team"] == home_team and m["away_team"] == away_team) or
+                     (m["home_team"] == away_team and m["away_team"] == home_team)]
+        
+        if not matches:
+            return {}
+            
+        home_wins = sum(1 for m in matches if m["home_team"] == home_team and m["FTR"] == "H")
+        away_wins = sum(1 for m in matches if m["away_team"] == away_team and m["FTR"] == "A")
+        
+        return {
+            "home_win_pct": home_wins / len(matches),
+            "away_win_pct": away_wins / len(matches),
+            "avg_home_goals": statistics.mean(float(m["home_goals"]) for m in matches),
+            "avg_away_goals": statistics.mean(float(m["away_goals"]) for m in matches)
+        }
+
+    def predict(self, home_team: str, away_team: str, league: str) -> Dict:
+        """Generate stable prediction with all data sources"""
+        # 1. Get cached odds
+        odds = self._get_cached_odds(home_team, away_team, league)
+        if not odds:
+            return {"error": "Could not fetch odds"}
+        
+        # 2. Calculate base probabilities from odds
         home_prob = 1 / odds[0]
         draw_prob = 1 / odds[1]
         away_prob = 1 / odds[2]
-        overround = home_prob + draw_prob + away_prob
         probs = {
-            "home_win": home_prob / overround,
-            "draw": draw_prob / overround,
-            "away_win": away_prob / overround
+            "home_win": home_prob,
+            "draw": draw_prob,
+            "away_win": away_prob
         }
         
-        # Apply league-specific adjustments
-        params = self.league_params.get(league, {})
-        if "strong_teams" in params:
-            if away_team in params["strong_teams"]:
-                probs["away_win"] *= 1.25
-                probs["home_win"] *= 0.6
-            elif home_team in params["strong_teams"]:
-                probs["home_win"] *= 1.25
-                probs["away_win"] *= 0.6
+        # 3. Apply league base adjustments
+        league_settings = self.league_params.get(league, {})
+        probs["draw"] = league_settings.get("base_draw_prob", 0.25)
+        remaining_prob = 1 - probs["draw"]
+        probs["home_win"] = remaining_prob * (0.5 + league_settings.get("home_advantage", 0))
+        probs["away_win"] = remaining_prob - probs["home_win"]
         
-        probs["draw"] *= params.get("draw_adjustment", 1.0)
-        probs["home_win"] *= params.get("home_advantage", 1.0)
+        # 4. Apply matchup adjustments
+        probs = self._apply_matchup_adjustments(probs, home_team, away_team, league)
         
-        # Normalize probabilities after adjustments
-        total = sum(probs.values())
-        probs = {k: v/total for k, v in probs.items()}
-        
-        # Historical validation
-        history = self._validate_against_history(home_team, away_team, league)
+        # 5. Blend with historical data if available
+        history = self._get_historical_stats(home_team, away_team)
         if history:
-            probs = {
-                "home_win": (probs["home_win"] + history["home_win_pct"]) / 2,
-                "draw": (probs["draw"] + history["draw_pct"]) / 2,
-                "away_win": (probs["away_win"] + history["away_win_pct"]) / 2
-            }
+            blend_weight = league_settings.get("form_weight", 0.3)
+            probs["home_win"] = (probs["home_win"] * (1 - blend_weight)) + (history["home_win_pct"] * blend_weight)
+            probs["away_win"] = (probs["away_win"] * (1 - blend_weight)) + (history["away_win_pct"] * blend_weight)
+            probs["draw"] = 1 - probs["home_win"] - probs["away_win"]
         
-        # Generate scoreline
-        def generate_score():
-            if probs["home_win"] > 0.65:
-                return f"{random.randint(2,3)}-{random.randint(0,1)}"
-            elif probs["away_win"] > 0.65:
-                return f"{random.randint(0,1)}-{random.randint(2,3)}"
-            else:
-                return f"{random.randint(0,2)}-{random.randint(0,2)}"
+        # 6. Generate deterministic score
+        home_exp, away_exp = self._get_expected_goals(home_team, away_team, league)
+        score = f"{round(home_exp)}-{round(away_exp)}"
         
-        # Confidence calculation
-        max_prob = max(probs.values())
-        confidence = (
-            "High" if max_prob > 0.7 else
-            "Medium" if max_prob > 0.55 else
-            "Low"
+        # 7. Prepare output
+        prediction = max(probs, key=probs.get).replace("_", " ").title()
+        confidence = "High" if max(probs.values()) > 0.7 else "Medium" if max(probs.values()) > 0.55 else "Low"
+        
+        logging.info(
+            f"Prediction: {home_team} {score} {away_team} | "
+            f"Outcome: {prediction} ({confidence}) | "
+            f"Probs: H{probs['home_win']:.2f} D{probs['draw']:.2f} A{probs['away_win']:.2f}"
         )
         
         return {
             "match": f"{home_team} vs {away_team}",
             "league": league,
-            "probabilities": {k: round(v, 3) for k, v in probs.items()},
-            "predicted_outcome": max(probs, key=probs.get).replace("_", " ").title(),
+            "prediction": prediction,
+            "score": score,
             "confidence": confidence,
-            "expected_score": generate_score(),
-            "historical_data_used": bool(history),
-            "value_bets": self._calculate_value_bets(probs, odds)
+            "probabilities": {k: round(v, 3) for k, v in probs.items()},
+            "expected_goals": {"home": home_exp, "away": away_exp},
+            "data_sources": {
+                "odds": odds,
+                "historical_stats": history,
+                "team_tiers": {
+                    "home": self._get_team_tier(home_team, league),
+                    "away": self._get_team_tier(away_team, league)
+                }
+            }
         }
-    
-    def _calculate_value_bets(self, probs: Dict, odds: Tuple) -> List[Dict]:
-        """Identify bets with positive expected value"""
-        value_threshold = 0.1
-        value_bets = []
-        
-        if (probs["home_win"] * odds[0]) - 1 > value_threshold:
-            value_bets.append({
-                "market": "1X2",
-                "selection": "Home Win",
-                "edge": round(probs["home_win"] * odds[0] - 1, 2)
-            })
-        
-        if (probs["away_win"] * odds[2]) - 1 > value_threshold:
-            value_bets.append({
-                "market": "1X2",
-                "selection": "Away Win",
-                "edge": round(probs["away_win"] * odds[2] - 1, 2)
-            })
-            
-        return value_bets
 
 # Initialize predictor
-predictor = RobustFootballPredictor()
+predictor = EnhancedFootballPredictor()
 
 @app.route("/predict", methods=["POST"])
-def predict():
+def api_predict():
     data = request.get_json()
-    
-    # Validate input
     required = ["home_team", "away_team", "league"]
     if not all(field in data for field in required):
-        return jsonify({"error": f"Missing fields: {required}"}), 400
+        return jsonify({"error": "Missing required fields"}), 400
     
-    # Get odds (API or manual)
-    odds = None
-    if "odds" in data:
-        try:
-            odds = tuple(map(float, data["odds"]))
-            if len(odds) != 3:
-                raise ValueError
-        except:
-            return jsonify({"error": "Invalid odds format. Use [home, draw, away]"}), 400
-    else:
-        odds = predictor.fetch_odds(data["home_team"], data["away_team"], data["league"])
-        if not odds:
-            return jsonify({"error": "Odds unavailable"}), 404
-    
-    # Generate prediction
-    try:
-        prediction = predictor.predict_match(
-            data["home_team"],
-            data["away_team"],
-            odds,
-            data["league"]
-        )
-        return jsonify(prediction)
-    except Exception as e:
-        app.logger.error(f"Prediction error: {str(e)}")
-        return jsonify({"error": "Prediction failed"}), 500
+    result = predictor.predict(data["home_team"], data["away_team"], data["league"])
+    return jsonify(result)
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8000, debug=True)
