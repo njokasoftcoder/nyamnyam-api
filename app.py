@@ -1,18 +1,14 @@
+from flask import Flask, render_template, request, send_file
 import pandas as pd
-import numpy as np
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import accuracy_score, classification_report
 import joblib
+import os
+from io import BytesIO
 
-# Load the sample data
-data = pd.read_csv("sample_match_data.csv")
+app = Flask(__name__)
+model = joblib.load("football_match_predictor.pkl")
 
-# Define target variable
-target = "Result"  # Expected to be 'Home Win', 'Draw', or 'Away Win'
-
-# Define usable numeric features
-features = [
+# Same feature list used for training
+feature_names = [
     "OddsHome", "DrawOdds", "AwayOdds",
     "SofascoreRatingHomeTeam", "SofascoreRatingAwayTeam",
     "NumberofmatchesplayedHometeam", "NumberofmatchesplayedAwayteam",
@@ -33,7 +29,7 @@ features = [
     "Tacklespergamehometeam", "Tacklespergameawayteam",
     "ClearancespergameHometeam", "Clearancespergameawayteam",
     "PenaltygoalsconcededHometeam", "PenaltygoalsconcededAwayteam",
-    "Savespergame",  # Appears twice; assuming same for both teams
+    "Savespergame",
     "DuelswonpergameHometeam", "DuelswonpergameAwayteam",
     "FoulspergameHometeam", "FoulspergameAwayteam",
     "OffsidespergameHometeam", "OffsidespergameAwayteam",
@@ -52,30 +48,32 @@ features = [
     "CounterattacksHometeam", "CounterattacksAwayteam"
 ]
 
-# Drop rows with missing target
-data = data.dropna(subset=[target])
+@app.route("/", methods=["GET", "POST"])
+def index():
+    return render_template("upload.html")
 
-# Encode target labels
-label_map = {"Home Win": 0, "Draw": 1, "Away Win": 2}
-data[target] = data[target].map(label_map)
+@app.route("/predict", methods=["POST"])
+def predict():
+    file = request.files["file"]
+    if not file:
+        return "No file uploaded.", 400
 
-# Fill missing values in features
-X = data[features].fillna(0)
-y = data[target]
+    df = pd.read_csv(file)
+    if not all(col in df.columns for col in feature_names):
+        missing = [col for col in feature_names if col not in df.columns]
+        return f"Missing required columns: {', '.join(missing)}", 400
 
-# Split dataset
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+    X = df[feature_names].fillna(0)
+    preds = model.predict(X)
+    label_map = {0: "Home Win", 1: "Draw", 2: "Away Win"}
+    df["Prediction"] = [label_map[p] for p in preds]
 
-# Train model
-model = RandomForestClassifier(n_estimators=100, random_state=42)
-model.fit(X_train, y_train)
+    # Return as downloadable CSV
+    output = BytesIO()
+    df.to_csv(output, index=False)
+    output.seek(0)
 
-# Evaluate
-y_pred = model.predict(X_test)
-accuracy = accuracy_score(y_test, y_pred)
-print(f"Model Accuracy: {accuracy:.2f}")
-print(classification_report(y_test, y_pred))
+    return send_file(output, mimetype="text/csv", as_attachment=True, download_name="predictions.csv")
 
-# Save model
-joblib.dump(model, "football_match_predictor.pkl")
-print("Model saved as 'football_match_predictor.pkl'")
+if __name__ == "__main__":
+    app.run(debug=True)
