@@ -1,13 +1,15 @@
-<!doctype html>
+<!DOCTYPE html>
 <html>
 <head>
-    <title>Nyam Nyam Match Predictor</title>
+    <title>Nyam Nyam Match Prediction</title>
 </head>
 <body>
-    <h2>Nyam Nyam Confidence Fire Prediction is 🔥 live</h2>
-    <form method="POST" action="/predict" enctype="multipart/form-data">
-        <input type="file" name="file" accept=".csv" required>
-        <button type="submit">Upload and Predict</button>
+    <h2>🔥 Nyam Nyam Confidence Fire Prediction is Live 🔥</h2>
+    <form action="/" method="POST" enctype="multipart/form-data">
+        <label for="file">Upload your CSV match data file:</label><br><br>
+        <input type="file" name="file" required><br><br>
+        <input type="submit" value="Predict Matches">
     </form>
 </body>
 </html>
+
