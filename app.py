@@ -12,7 +12,7 @@ app.config['UPLOAD_FOLDER'] = 'uploads'
 app.config['ALLOWED_EXTENSIONS'] = {'csv'}
 
 # Load the trained model
-model = joblib.load('match_outcome_model.pkl')  # updated name
+model = joblib.load('match_outcome_model.pkl')
 
 # Ensure upload folder exists
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
@@ -26,7 +26,7 @@ def allowed_file(filename):
 def index():
     return render_template('form.html')
 
-# Handle CSV upload and run prediction
+# Handle file upload and prediction
 @app.route('/', methods=['POST'])
 def upload_predict():
     if 'file' not in request.files:
@@ -42,7 +42,6 @@ def upload_predict():
         file.save(filepath)
 
         try:
-            # Load uploaded data
             df = pd.read_csv(filepath)
 
             # Run prediction
@@ -50,20 +49,19 @@ def upload_predict():
             label_map = {0: "Home Win", 1: "Draw", 2: "Away Win"}
             df['Prediction'] = [label_map[p] for p in prediction]
 
-            # Add Match Number column
+            # Add Match No.
             df.insert(0, 'Match No.', range(1, len(df) + 1))
 
-            # Save output CSV
+            # Save output file
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
             output_filename = f'predicted_results_{timestamp}.csv'
             output_path = os.path.join(app.config['UPLOAD_FOLDER'], output_filename)
             df.to_csv(output_path, index=False)
 
-            # Optionally log predictions (can be expanded later)
+            # Optional prediction log
             log_path = os.path.join(app.config['UPLOAD_FOLDER'], 'prediction_log.csv')
             df.to_csv(log_path, mode='a', header=not os.path.exists(log_path), index=False)
 
-            # Render results in HTML
             return render_template('results.html', tables=[df.to_html(classes='data', index=False)], filename=output_filename)
 
         except Exception as e:
@@ -71,12 +69,11 @@ def upload_predict():
 
     return "Invalid file format. Please upload a CSV."
 
-# Download prediction file
+# Route to download file
 @app.route('/download/<filename>')
 def download_file(filename):
-    path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-    return send_file(path, as_attachment=True)
+    return send_file(os.path.join(app.config['UPLOAD_FOLDER'], filename), as_attachment=True)
 
-# Run app
+# Run the app
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8000, debug=True)
