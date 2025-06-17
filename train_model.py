@@ -7,7 +7,7 @@ import warnings
 warnings.filterwarnings("ignore")
 
 # Load the dataset
-data = pd.read_csv("match_data.csv")
+data = pd.read_csv("sample_match_data.csv")
 
 # --- Clean column names ---
 data.columns = [col.strip().lower().replace(" ", "").replace("(", "").replace(")", "").replace(",", "") for col in data.columns]
@@ -36,7 +36,7 @@ numeric_columns = data.select_dtypes(include='number').columns.tolist()
 features = [col for col in numeric_columns if col != target]
 
 # --- Fill missing numeric values grouped by league_home (if available) ---
-group_column = "league_home".lower()
+group_column = "league_home"
 if group_column in data.columns:
     for feature in features:
         data[feature] = data.groupby(group_column)[feature].transform(lambda x: x.fillna(x.mean()))
