@@ -12,9 +12,9 @@ data = pd.read_csv("sample_match_data.csv")
 # --- Clean column names ---
 data.columns = [col.strip().lower().replace(" ", "").replace("(", "").replace(")", "").replace(",", "") for col in data.columns]
 
-# --- Fix percentages: Convert 'ballpossessionhometeam' etc. from "50%" to 50.0 ---
+# --- Fix percentages: Convert strings like "50%" to 50.0 ---
 for col in data.columns:
-    if data[col].dtype == object and data[col].astype(str).str.contains('%').any():
+    if data[col].dtypes == object and data[col].astype(str).str.contains('%').any():
         data[col] = data[col].str.rstrip('%').astype(float)
 
 # --- Target Column ---
