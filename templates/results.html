@@ -1,92 +1,50 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-    <meta charset="UTF-8">
     <title>Prediction Results</title>
     <style>
-        body {
-            font-family: Arial, sans-serif;
-            margin: 40px;
-            background-color: #f9f9f9;
-        }
-        h1 {
-            color: #d9534f;
-        }
-        .btn-download {
-            display: inline-block;
-            margin-bottom: 20px;
-            padding: 10px 15px;
-            background-color: #5cb85c;
-            color: white;
-            text-decoration: none;
-            border-radius: 4px;
-        }
-        .btn-download:hover {
-            background-color: #4cae4c;
-        }
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            background: #fff;
-        }
-        th, td {
-            padding: 12px;
-            border: 1px solid #ddd;
-            text-align: left;
-            font-size: 14px;
-        }
-        th {
-            background-color: #f2f2f2;
-        }
-        tr:nth-child(even) {
-            background: #f9f9f9;
-        }
-        .confidence-high {
-            color: green;
-            font-weight: bold;
-        }
-        .confidence-low {
-            color: red;
-            font-weight: bold;
-        }
-        .trap-yes {
-            background-color: #fff3cd;
-            font-weight: bold;
-        }
+        body { font-family: Arial; padding: 20px; }
+        h2 { color: darkgreen; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th, td { border: 1px solid #ccc; padding: 10px; text-align: center; }
+        .highlight { font-weight: bold; }
+        .btn { padding: 5px 10px; background: green; color: white; border: none; cursor: pointer; }
     </style>
 </head>
 <body>
-    <h1>Nyam Nyam 🔥 Prediction Results</h1>
-
-    <a href="/download" class="btn-download">⬇ Download CSV</a>
-
+    <h2>🔥 Nyam Nyam Fire Predictions</h2>
     <table>
-        <thead>
-            <tr>
-                <th>#</th>
-                <th>Home Team</th>
-                <th>Away Team</th>
-                <th>Prediction</th>
-                <th>Confidence</th>
-                <th>Trap Alert</th>
-                <th>Match Description</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for row in results %}
-            <tr class="{{ 'trap-yes' if row.TrapAlert == 'Yes' else '' }}">
-                <td>{{ loop.index }}</td>
-                <td>{{ row.HomeTeam }}</td>
-                <td>{{ row.AwayTeam }}</td>
-                <td>{{ row.Prediction }}</td>
-                <td class="{{ 'confidence-high' if row.Confidence == 'High' else 'confidence-low' if row.Confidence == 'Low' else '' }}">
-                    {{ row.Confidence }}
-                </td>
-                <td>{{ row.TrapAlert }}</td>
-                <td>{{ row.MatchDescription }}</td>
-            </tr>
-            {% endfor %}
-        </tbody>
+        <tr>
+            <th>#</th>
+            <th>Match</th>
+            <th>Prediction</th>
+            <th>Confidence</th>
+            <th>Trap Alert</th>
+            <th>Actual Outcome</th>
+        </tr>
+        {% for i, match in enumerate(results) %}
+        <tr>
+            <td>{{ i + 1 }}</td>
+            <td class="highlight">{{ match.MatchDescription }}</td>
+            <td>{{ match.Prediction }}</td>
+            <td>{{ match.Confidence }}</td>
+            <td>{{ match.TrapAlert }}</td>
+            <td>
+                <form method="POST" action="/log_result">
+                    <input type="hidden" name="match_index" value="{{ i }}">
+                    <select name="actual_outcome" required>
+                        <option value="">-- Select --</option>
+                        <option value="Home Win">Home Win</option>
+                        <option value="Draw">Draw</option>
+                        <option value="Away Win">Away Win</option>
+                    </select>
+                    <button type="submit" class="btn">Log</button>
+                </form>
+            </td>
+        </tr>
+        {% endfor %}
     </table>
+    <br><br>
+    <a href="/download" class="btn">⬇ Download CSV</a>
 </body>
 </html>
