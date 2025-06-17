@@ -12,11 +12,10 @@ data = pd.read_csv("sample_match_data.csv")
 # --- Clean and normalize column names ---
 data.columns = [col.strip().lower().replace(" ", "").replace("(", "").replace(")", "").replace(",", "") for col in data.columns]
 
-# --- Fix percentages: Convert strings like "50%" to float 50.0 ---
+# --- Fix percentage columns: Convert strings like "50%" to float 50.0 ---
 for col in data.columns:
-    if data[col].dtypes == object:
-        if data[col].astype(str).str.contains('%').any():
-            data[col] = data[col].str.rstrip('%').astype(float)
+    if data[col].dtype == object and data[col].astype(str).str.contains('%').any():
+        data[col] = data[col].str.rstrip('%').astype(float)
 
 # --- Define target variable ---
 target = "result"
@@ -36,7 +35,7 @@ if not pd.api.types.is_numeric_dtype(data[target]):
 numeric_columns = data.select_dtypes(include='number').columns.tolist()
 features = [col for col in numeric_columns if col != target]
 
-# --- Fill missing values: group by league_home if available ---
+# --- Fill missing values ---
 group_column = "league_home"
 if group_column in data.columns:
     for feature in features:
