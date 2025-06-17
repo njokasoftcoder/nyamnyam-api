@@ -1,7 +1,7 @@
 import os
 import pandas as pd
 import numpy as np
-from flask import Flask, request, render_template, send_file
+from flask import Flask, request, render_template, send_file, redirect, url_for
 import joblib
 from werkzeug.utils import secure_filename
 
@@ -10,10 +10,8 @@ app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = 'uploads'
 app.config['ALLOWED_EXTENSIONS'] = {'csv'}
 
-# Load the trained model
+# Load trained model and features
 model = joblib.load('football_match_predictor.pkl')
-
-# Load required feature list
 with open("model_features.txt", "r") as f:
     required_features = [line.strip() for line in f.readlines()]
 
@@ -44,29 +42,37 @@ def upload_predict():
         try:
             df = pd.read_csv(filepath)
 
-            # Check and filter required features
+            # Ensure required features
             missing = [feat for feat in required_features if feat not in df.columns]
             if missing:
                 return f"Missing required columns: {missing}"
 
-            # Align input dataframe with model features
             input_data = df[required_features]
 
             # Predict
-            prediction = model.predict(input_data)
+            predictions = model.predict(input_data)
+            probabilities = model.predict_proba(input_data)
+
             label_map = {0: "Home Win", 1: "Draw", 2: "Away Win"}
-            df['Predicted Outcome'] = [label_map[p] for p in prediction]
+            df['Predicted Outcome'] = [label_map[p] for p in predictions]
+            df['Confidence Score'] = np.max(probabilities, axis=1).round(2)
 
             # Save results
             output_path = os.path.join(app.config['UPLOAD_FOLDER'], 'predicted_results.csv')
             df.to_csv(output_path, index=False)
 
-            return send_file(output_path, as_attachment=True)
+            preview_df = df[['Predicted Outcome', 'Confidence Score']].head(50)  # Show first 50 results
+
+            return render_template('results.html',
+                                   tables=[preview_df.to_html(classes='data', header=True, index=False)],
+                                   download_link=url_for('download_file'))
 
         except Exception as e:
             return f"Error during prediction: {str(e)}"
 
     return "Invalid file format. Please upload a CSV."
 
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=8000, debug=True)
+@app.route('/download')
+def download_file():
+    output_path = os.path.join(app.config['UPLOAD_FOLDER'], 'predicted_results.csv')
+    return send_file(output_path, as_attachment=True)
