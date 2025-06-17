@@ -16,18 +16,47 @@
     </style>
 </head>
 <body>
-    <div class="container">
-        <h2>⚽ Nyam Nyam Confidence Fire Prediction Results</h2>
+<div class="container">
+    <h2>🔥 Nyam Nyam Confidence Fire Prediction Results</h2>
 
-        <div class="mb-3">
-            <a href="{{ url_for('static', filename='predicted_results.csv') }}" class="btn btn-success">
-                ⬇️ Download Predictions CSV
-            </a>
-        </div>
-
-        <div class="table-responsive">
-            {{ table_html | safe }}
-        </div>
+    <div class="mb-4">
+        <a href="{{ url_for('static', filename='predicted_results.csv') }}" class="btn btn-success">
+            ⬇️ Download Predictions CSV
+        </a>
     </div>
+
+    <h5>📊 Prediction Summary:</h5>
+    <ul>
+        <li><strong>Home Wins:</strong> {{ summary.get('Home Win', 0) }}</li>
+        <li><strong>Draws:</strong> {{ summary.get('Draw', 0) }}</li>
+        <li><strong>Away Wins:</strong> {{ summary.get('Away Win', 0) }}</li>
+    </ul>
+
+    <h5>🔝 Top 3 Most Confident Predictions:</h5>
+    <table class="table table-bordered">
+        <thead class="thead-light">
+        <tr>
+            <th>Match No.</th>
+            <th>Prediction</th>
+            <th>Confidence</th>
+        </tr>
+        </thead>
+        <tbody>
+        {% for row in top_confident %}
+            <tr>
+                <td>{{ row['Match No.'] }}</td>
+                <td>{{ row['Prediction'] }}</td>
+                <td>{{ row['Confidence'] }}</td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+
+    <hr>
+    <h5>📋 Full Predictions:</h5>
+    <div class="table-responsive">
+        {{ table_html | safe }}
+    </div>
+</div>
 </body>
 </html>
