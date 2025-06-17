@@ -1,62 +1,77 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
+    <meta charset="UTF-8">
     <title>Prediction Results</title>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/css/bootstrap.min.css">
     <style>
         body {
-            padding: 30px;
+            font-family: Arial, sans-serif;
+            margin: 40px;
+            background-color: #f9f9f9;
         }
-        h2 {
-            margin-bottom: 20px;
+        h1 {
+            color: #d9534f;
         }
         table {
+            width: 100%;
+            border-collapse: collapse;
+            background: #fff;
+        }
+        th, td {
+            padding: 12px;
+            border: 1px solid #ddd;
+            text-align: left;
             font-size: 14px;
+        }
+        th {
+            background-color: #f2f2f2;
+        }
+        tr:nth-child(even) {
+            background: #f9f9f9;
+        }
+        .confidence-high {
+            color: green;
+            font-weight: bold;
+        }
+        .confidence-low {
+            color: red;
+            font-weight: bold;
+        }
+        .trap-yes {
+            background-color: #fff3cd;
+            font-weight: bold;
         }
     </style>
 </head>
 <body>
-<div class="container">
-    <h2>🔥 Nyam Nyam Confidence Fire Prediction Results</h2>
-
-    <div class="mb-4">
-        <a href="{{ url_for('static', filename='predicted_results.csv') }}" class="btn btn-success">
-            ⬇️ Download Predictions CSV
-        </a>
-    </div>
-
-    <h5>📊 Prediction Summary:</h5>
-    <ul>
-        <li><strong>Home Wins:</strong> {{ summary.get('Home Win', 0) }}</li>
-        <li><strong>Draws:</strong> {{ summary.get('Draw', 0) }}</li>
-        <li><strong>Away Wins:</strong> {{ summary.get('Away Win', 0) }}</li>
-    </ul>
-
-    <h5>🔝 Top 3 Most Confident Predictions:</h5>
-    <table class="table table-bordered">
-        <thead class="thead-light">
-        <tr>
-            <th>Match No.</th>
-            <th>Prediction</th>
-            <th>Confidence</th>
-        </tr>
+    <h1>Nyam Nyam 🔥 Prediction Results</h1>
+    <table>
+        <thead>
+            <tr>
+                <th>#</th>
+                <th>Home Team</th>
+                <th>Away Team</th>
+                <th>Prediction</th>
+                <th>Confidence</th>
+                <th>Trap Alert</th>
+                <th>Match Description</th>
+            </tr>
         </thead>
         <tbody>
-        {% for row in top_confident %}
-            <tr>
-                <td>{{ row['Match No.'] }}</td>
-                <td>{{ row['Prediction'] }}</td>
-                <td>{{ row['Confidence'] }}</td>
+            {% for row in results %}
+            <tr class="{{ 'trap-yes' if row.TrapAlert == 'Yes' else '' }}">
+                <td>{{ loop.index }}</td>
+                <td>{{ row.HomeTeam }}</td>
+                <td>{{ row.AwayTeam }}</td>
+                <td>{{ row.Prediction }}</td>
+                <td class="{{ 'confidence-high' if row.Confidence == 'High' else 'confidence-low' if row.Confidence == 'Low' else '' }}">
+                    {{ row.Confidence }}
+                </td>
+                <td>{{ row.TrapAlert }}</td>
+                <td>{{ row.MatchDescription }}</td>
             </tr>
-        {% endfor %}
+            {% endfor %}
         </tbody>
     </table>
-
-    <hr>
-    <h5>📋 Full Predictions:</h5>
-    <div class="table-responsive">
-        {{ table_html | safe }}
-    </div>
-</div>
 </body>
 </html>
