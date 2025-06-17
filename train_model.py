@@ -6,36 +6,37 @@ import warnings
 
 warnings.filterwarnings("ignore")
 
-# Load the dataset
+# --- Load dataset ---
 data = pd.read_csv("sample_match_data.csv")
 
-# --- Clean column names ---
+# --- Clean and normalize column names ---
 data.columns = [col.strip().lower().replace(" ", "").replace("(", "").replace(")", "").replace(",", "") for col in data.columns]
 
-# --- Fix percentages: Convert strings like "50%" to 50.0 ---
+# --- Fix percentages: Convert strings like "50%" to float 50.0 ---
 for col in data.columns:
-    if data[col].dtypes == object and data[col].astype(str).str.contains('%').any():
-        data[col] = data[col].str.rstrip('%').astype(float)
+    if data[col].dtypes == object:
+        if data[col].astype(str).str.contains('%').any():
+            data[col] = data[col].str.rstrip('%').astype(float)
 
-# --- Target Column ---
+# --- Define target variable ---
 target = "result"
 target = target.lower().strip()
 
 if target not in data.columns:
     raise ValueError(f"Target column '{target}' not found in dataset.")
 
-# Drop rows without target
+# --- Drop rows with missing target ---
 data = data.dropna(subset=[target])
 
-# --- Convert target to categorical if not numeric ---
+# --- Convert target to numeric category if not already ---
 if not pd.api.types.is_numeric_dtype(data[target]):
     data[target] = data[target].astype("category").cat.codes
 
-# --- Automatically select numeric features (excluding target) ---
+# --- Select all numeric columns except target ---
 numeric_columns = data.select_dtypes(include='number').columns.tolist()
 features = [col for col in numeric_columns if col != target]
 
-# --- Fill missing numeric values grouped by league_home (if available) ---
+# --- Fill missing values: group by league_home if available ---
 group_column = "league_home"
 if group_column in data.columns:
     for feature in features:
@@ -43,22 +44,22 @@ if group_column in data.columns:
 else:
     data[features] = data[features].fillna(data[features].mean())
 
-# --- Train/Test Split ---
+# --- Split dataset ---
 X = data[features]
 y = data[target]
 
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
-# --- Train Model ---
+# --- Train model ---
 model = RandomForestClassifier(n_estimators=100, random_state=42)
 model.fit(X_train, y_train)
 
-# --- Evaluate ---
+# --- Evaluate model ---
 y_pred = model.predict(X_test)
 print("\n✅ Model Accuracy:", accuracy_score(y_test, y_pred))
 print("\n📊 Classification Report:\n", classification_report(y_test, y_pred))
 
-# --- Optional: Feature Importance ---
+# --- Show top feature importances ---
 importances = model.feature_importances_
 feature_scores = pd.Series(importances, index=features).sort_values(ascending=False)
 print("\n📈 Top 20 Important Features:\n", feature_scores.head(20))
