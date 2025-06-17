@@ -1,105 +1,60 @@
 import pandas as pd
-import numpy as np
-from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import accuracy_score, classification_report
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import classification_report, accuracy_score
+from sklearn.preprocessing import LabelEncoder
 import joblib
 
-# Load the sample data
-data = pd.read_csv("sample_match_data.csv")
+# Load data
+data = pd.read_csv("football_data.csv")  # Replace with your actual file name
 
-# Define target variable
-target = "Result"  # Expected to be 'Home Win', 'Draw', or 'Away Win'
+# Automatically clean percentage-based columns
+for col in data.columns:
+    if data[col].astype(str).str.contains('%').any():
+        data[col] = data[col].astype(str).str.replace('%', '', regex=False)
+        data[col] = pd.to_numeric(data[col], errors='coerce') / 100
 
-# Fill missing league strength based on mapping
-league_strength = {
-    'Premier League': 5,
-    'Ligue 1': 4,
-    'Super League Greece': 3,
-    'Kenyan Premier League': 2,
-    'Unknown': 1
-}
-data['LeagueStrength_Home'] = data['League_Home'].map(league_strength).fillna(1)
-data['LeagueStrength_Away'] = data['League_Away'].map(league_strength).fillna(1)
+# Define target
+target = 'Result'  # Ensure this column exists in your CSV
 
-# Flag for cross-league match
-data['IsCrossLeagueMatch'] = (data['Country_Home'] != data['Country_Away']).astype(int)
-
-# Define usable numeric features
-features = [
-    "OddsHome", "DrawOdds", "AwayOdds",
-    "SofascoreRatingHomeTeam", "SofascoreRatingAwayTeam",
-    "NumberofmatchesplayedHometeam", "NumberofmatchesplayedAwayteam",
-    "TotalgoalsscoredintheseasonHometeam", "TotalgoalsscoredintheseasonAwayteam",
-    "TotalgoalsconcededHomeTeam", "TotalgoalsconcededAwayteam",
-    "TotalassistsHometeam", "TotalassistsAwayteam",
-    "GoalspergameHometeam", "GoalspergameAwayteam",
-    "Goalconversion(Hometeam)", "Goalconversion(Awayteam)",
-    "ShotsontargetpergameHometeam", "Shotsontargetpergameawayteam",
-    "Bigchancespergamehometeam", "Bigchancespergamehometeamawayteam",
-    "BigchancesmissedpergameHometeam", "BigchancesmissedpergameAwayteam",
-    "Ballpossessionhometeam", "Ballpossessionawayteam",
-    "Accuratepassespergamehometeam", "Accuratepassespergameawayteam",
-    "Accuratelongballspergamehometeam", "Accuratelongballspergameawayteam",
-    "CleansheetsHometeam", "CleansheetsAwayteam",
-    "Goalsconcededpergamehometeam", "Goalsconcededpergameawayteam",
-    "InterceptionspergameHometeam", "InterceptionspergameAwayteam",
-    "Tacklespergamehometeam", "Tacklespergameawayteam",
-    "ClearancespergameHometeam", "Clearancespergameawayteam",
-    "PenaltygoalsconcededHometeam", "PenaltygoalsconcededAwayteam",
-    "Savespergame",
-    "DuelswonpergameHometeam", "DuelswonpergameAwayteam",
-    "FoulspergameHometeam", "FoulspergameAwayteam",
-    "OffsidespergameHometeam", "OffsidespergameAwayteam",
-    "GoalkickspergameHometeam", "GoalkickspergameAwayteam",
-    "TotalthrowinsHometeam", "TotalthrowinsAwayteam",
-    "TotalyellowcardsawardedHometeam", "TotalyellowcardsawardedAwayteam",
-    "TotalRedcardsawardedHometeam", "TotalRedcardsawardedAwayteam",
-    "LeaguePositionHomeTeam", "LeaguePositionAwayTeam",
-    "TotalPointsHome", "TotalPointsAway",
-    "TotalshotspergameHometeam", "TotalshotspergameAwayteam",
-    "ShotsofftargetpergameHometeam", "Shotsofftargetpergame",
-    "BlockedshotspergameHometeam", "BlockedshotspergameAwayteam",
-    "CornerspergameHometeam", "CornerspergameAwayteam",
-    "FreekickspergameHometeam", "FreekickspergameAwayteam",
-    "HitwoodworkHometeam", "HitwoodworkAwayteam",
-    "CounterattacksHometeam", "CounterattacksAwayteam",
-    "LeagueStrength_Home", "LeagueStrength_Away",
-    "IsCrossLeagueMatch"
-]
-
-# Drop rows with missing target
+# Drop rows where target is missing
 data = data.dropna(subset=[target])
 
-# Encode target labels
-label_map = {"Home Win": 0, "Draw": 1, "Away Win": 2}
-data[target] = data[target].map(label_map)
+# Encode target labels (e.g. Home Win, Draw, Away Win → 0, 1, 2)
+label_encoder = LabelEncoder()
+data[target] = label_encoder.fit_transform(data[target])
 
-# Fill missing numeric feature values with league averages, then global average
-for feature in features:
-    if feature in data.columns:
-        if 'Hometeam' in feature:
-            data[feature] = data.groupby('League_Home')[feature].transform(lambda x: x.fillna(x.mean()))
-        elif 'Awayteam' in feature:
-            data[feature] = data.groupby('League_Away')[feature].transform(lambda x: x.fillna(x.mean()))
-        data[feature] = data[feature].fillna(data[feature].mean())
+# Save label encoder for later decoding predictions
+joblib.dump(label_encoder, 'label_encoder.pkl')
 
-X = data[features]
+# Encode categorical columns (like League names)
+categorical_columns = data.select_dtypes(include=['object']).columns.drop(target, errors='ignore')
+for col in categorical_columns:
+    data[col] = LabelEncoder().fit_transform(data[col].astype(str))
+
+# Fill numeric missing values with league-wise mean if available, else column mean
+numeric_columns = data.select_dtypes(include='number').columns.drop(target)
+for feature in numeric_columns:
+    if 'League_Home' in data.columns:
+        data[feature] = data.groupby('League_Home')[feature].transform(lambda x: x.fillna(x.mean()))
+    data[feature] = data[feature].fillna(data[feature].mean())
+
+# Define features and labels
+X = data.drop(columns=[target])
 y = data[target]
 
-# Split dataset
+# Train/test split
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
-# Train model
+# Model
 model = RandomForestClassifier(n_estimators=100, random_state=42)
 model.fit(X_train, y_train)
 
 # Evaluate
 y_pred = model.predict(X_test)
-accuracy = accuracy_score(y_test, y_pred)
-print(f"Model Accuracy: {accuracy:.2f}")
-print(classification_report(y_test, y_pred))
+print("Accuracy:", accuracy_score(y_test, y_pred))
+print("Classification Report:\n", classification_report(y_test, y_pred, target_names=label_encoder.classes_))
 
 # Save model
-joblib.dump(model, "football_match_predictor.pkl")
-print("Model saved as 'football_match_predictor.pkl'")
+joblib.dump(model, 'football_model.pkl')
+print("Model saved as football_model.pkl")
