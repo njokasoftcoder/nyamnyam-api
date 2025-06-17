@@ -1,68 +1,49 @@
 import pandas as pd
-from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report, accuracy_score
-import re
+import warnings
 
-# Load CSV
-data = pd.read_csv("match_data.csv")  # <- update filename if needed
+warnings.filterwarnings("ignore")
+
+# Load the dataset
+data = pd.read_csv("match_data.csv")
 
 # --- Clean column names ---
-data.columns = (
-    data.columns
-    .str.strip()
-    .str.replace('[^A-Za-z0-9_]+', '', regex=True)
-    .str.lower()
-)
+data.columns = [col.strip().lower().replace(" ", "").replace("(", "").replace(")", "").replace(",", "") for col in data.columns]
 
-# Print to confirm cleaned names (optional)
-# print(data.columns.tolist())
-
-# --- Convert percentage-like strings to float ---
+# --- Fix percentages: Convert 'ballpossessionhometeam' etc. from "50%" to 50.0 ---
 for col in data.columns:
-    if data[col].dtype == 'object' and data[col].astype(str).str.contains('%').any():
-        data[col] = data[col].str.replace('%', '').astype(float)
+    if data[col].dtype == object and data[col].astype(str).str.contains('%').any():
+        data[col] = data[col].str.rstrip('%').astype(float)
 
-# --- Define Target ---
-target = 'result'
+# --- Target Column ---
+target = "result"
+target = target.lower().strip()
+
 if target not in data.columns:
-    raise KeyError(f"❌ Missing expected target column '{target}' after cleaning.")
+    raise ValueError(f"Target column '{target}' not found in dataset.")
 
+# Drop rows without target
 data = data.dropna(subset=[target])
 
-# --- Define Feature List (Based on your headers) ---
-features = [
-    'sofascoreratinghometeam', 'sofascoreratingawayteam',
-    'goalconversionhometeam', 'goalconversionawayteam',
-    'ballpossessionhometeam', 'ballpossessionawayteam',
-    'accuratepassespergamehometeam', 'accuratepassespergameawayteam',
-    'accuratelongballspergamehometeam', 'accuratelongballspergameawayteam',
-    'cleansheetshometeam', 'cleansheetsawayteam',
-    'formhometeam', 'formawayteam',
-    'totalshotspergamehometeam', 'totalshotspergameawayteam',
-    'shotsontargetpergamehometeam', 'shotsontargetpergameawayteam',
-    'shotsofftargetpergamehometeam', 'shotsofftargetpergameawayteam',
-    'blockedshotspergamehometeam', 'blockedshotspergameawayteam',
-    'duelswonpergamehometeam', 'duelswonpergameawayteam'
-]
+# --- Convert target to categorical if not numeric ---
+if not pd.api.types.is_numeric_dtype(data[target]):
+    data[target] = data[target].astype("category").cat.codes
 
-# --- Confirm All Features Are Present ---
-missing = [col for col in features if col not in data.columns]
-if missing:
-    print(f"❌ Missing features: {missing}")
-    raise KeyError("Please ensure the above columns exist in the cleaned dataset.")
+# --- Automatically select numeric features (excluding target) ---
+numeric_columns = data.select_dtypes(include='number').columns.tolist()
+features = [col for col in numeric_columns if col != target]
 
-# --- Fill NA values with mean grouped by league if available ---
-if 'league_home' in data.columns:
+# --- Fill missing numeric values grouped by league_home (if available) ---
+group_column = "league_home".lower()
+if group_column in data.columns:
     for feature in features:
-        data[feature] = data.groupby('league_home')[feature].transform(
-            lambda x: pd.to_numeric(x, errors='coerce').fillna(x.mean())
-        )
+        data[feature] = data.groupby(group_column)[feature].transform(lambda x: x.fillna(x.mean()))
 else:
-    for feature in features:
-        data[feature] = pd.to_numeric(data[feature], errors='coerce').fillna(data[feature].mean())
+    data[features] = data[features].fillna(data[features].mean())
 
-# --- Prepare Train/Test Data ---
+# --- Train/Test Split ---
 X = data[features]
 y = data[target]
 
@@ -72,8 +53,12 @@ X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_
 model = RandomForestClassifier(n_estimators=100, random_state=42)
 model.fit(X_train, y_train)
 
-# --- Evaluate Model ---
+# --- Evaluate ---
 y_pred = model.predict(X_test)
-print("✅ Model Evaluation:")
-print(classification_report(y_test, y_pred))
-print(f"Accuracy: {accuracy_score(y_test, y_pred):.2f}")
+print("\n✅ Model Accuracy:", accuracy_score(y_test, y_pred))
+print("\n📊 Classification Report:\n", classification_report(y_test, y_pred))
+
+# --- Optional: Feature Importance ---
+importances = model.feature_importances_
+feature_scores = pd.Series(importances, index=features).sort_values(ascending=False)
+print("\n📈 Top 20 Important Features:\n", feature_scores.head(20))
