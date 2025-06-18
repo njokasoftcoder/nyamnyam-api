@@ -19,7 +19,6 @@ except Exception as e:
     logger.error(f"Error loading model files: {str(e)}")
     raise
 
-# Complete feature columns - exactly as used during model training
 FEATURE_COLUMNS = [
     'OddsHome', 'DrawOdds', 'AwayOdds',
     'SofascoreRatingHomeTeam', 'SofascoreRatingAwayTeam',
@@ -45,65 +44,42 @@ FEATURE_COLUMNS = [
     'FoulspergameHometeam', 'FoulspergameAwayteam'
 ]
 
-def prepare_input_data(input_data: Union[Dict[str, Any], List[Dict[str, Any]]]) -> Dict[str, Any]:
-    """Convert input data to a single dictionary format."""
-    if input_data is None:
-        raise ValueError("No input data provided")
+def prepare_input(raw_data: Union[Dict, List]) -> Dict:
+    """Handle both dictionary and list inputs."""
+    if raw_data is None:
+        raise ValueError("No data provided")
     
-    if isinstance(input_data, list):
-        if not input_data:
+    if isinstance(raw_data, list):
+        if not raw_data:
             raise ValueError("Empty list provided")
-        if len(input_data) > 1:
-            logger.warning("Received list with multiple items, using first item only")
-        return input_data[0]
+        if len(raw_data) > 1:
+            logger.warning("List contains multiple items - using first item only")
+        return raw_data[0]
     
-    if isinstance(input_data, dict):
-        return input_data
+    if isinstance(raw_data, dict):
+        return raw_data
     
-    raise ValueError(f"Unexpected input type: {type(input_data)}")
-
-def validate_input(input_dict: Dict[str, Any]) -> bool:
-    """Validate that input contains all required features with numeric values."""
-    if not all(col in input_dict for col in FEATURE_COLUMNS):
-        missing = [col for col in FEATURE_COLUMNS if col not in input_dict]
-        logger.error(f"Missing features in input: {missing}")
-        return False
-    
-    if not all(isinstance(input_dict[col], (int, float)) for col in FEATURE_COLUMNS):
-        invalid = [col for col in FEATURE_COLUMNS if not isinstance(input_dict[col], (int, float))]
-        logger.error(f"Non-numeric values found for features: {invalid}")
-        return False
-    
-    return True
+    raise ValueError(f"Expected dict or list, got {type(raw_data)}")
 
 @app.route('/predict', methods=['POST'])
 def predict():
-    """
-    Predict match outcome based on input features.
-    
-    Accepts either:
-    - A single JSON object: {"feature1": value1, "feature2": value2, ...}
-    - A list containing one JSON object: [{"feature1": value1, ...}]
-    
-    Returns JSON with prediction ('Home', 'Draw', or 'Away') or error message.
-    """
+    """Handle prediction requests."""
     try:
-        # Get input data
+        # Get and prepare input data
         raw_data = request.get_json()
+        input_data = prepare_input(raw_data)
         
-        # Convert to standard dictionary format
-        input_dict = prepare_input_data(raw_data)
-        
-        # Validate the input
-        if not validate_input(input_dict):
+        # Validate features
+        missing_features = [col for col in FEATURE_COLUMNS if col not in input_data]
+        if missing_features:
             return jsonify({
-                "error": "Invalid input data",
-                "required_features": FEATURE_COLUMNS,
-                "received_features": list(input_dict.keys())
+                "error": "Missing required features",
+                "missing_features": missing_features,
+                "status": "error"
             }), 400
         
         # Prepare DataFrame
-        input_df = pd.DataFrame([input_dict], columns=FEATURE_COLUMNS)
+        input_df = pd.DataFrame([input_data], columns=FEATURE_COLUMNS)
         
         # Make prediction
         prediction = model.predict(input_df)
@@ -115,13 +91,12 @@ def predict():
         })
         
     except ValueError as e:
-        logger.error(f"Input validation error: {str(e)}")
         return jsonify({
             "error": str(e),
             "status": "error"
         }), 400
     except Exception as e:
-        logger.error(f"Prediction error: {str(e)}", exc_info=True)
+        logger.error(f"Prediction failed: {str(e)}", exc_info=True)
         return jsonify({
             "error": "Internal server error",
             "status": "error"
@@ -129,7 +104,6 @@ def predict():
 
 @app.route('/health', methods=['GET'])
 def health_check():
-    """Health check endpoint"""
     return jsonify({"status": "healthy"}), 200
 
 if __name__ == '__main__':
