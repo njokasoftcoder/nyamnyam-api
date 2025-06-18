@@ -8,7 +8,7 @@ app = Flask(__name__)
 model = joblib.load('match_outcome_model.pkl')
 label_encoder = joblib.load('label_encoder.pkl')
 
-# Define expected feature columns (must match what model was trained on)
+# List of expected feature columns (must match training order)
 feature_columns = [
     'OddsHome', 'DrawOdds', 'AwayOdds',
     'SofascoreRatingHomeTeam', 'SofascoreRatingAwayTeam',
@@ -51,39 +51,38 @@ feature_columns = [
     'H2H(Latestooldest)'
 ]
 
-@app.route('/')
-def home():
-    return "✅ Nyam Nyam Confidence Fire Prediction is 🔥 live."
-
 @app.route('/predict', methods=['POST'])
 def predict():
     try:
         data = request.get_json()
-        print("📥 Incoming data:", data)
+        print("📥 Received data:", data)
 
-        # Handle list or single dict
+        # Handle both list and single match input
         if isinstance(data, list):
             df = pd.DataFrame(data)
         elif isinstance(data, dict):
             df = pd.DataFrame([data])
         else:
-            return jsonify({"error": "Invalid JSON format"}), 400
+            return jsonify({"error": "Input should be a list or dict"}), 400
 
-        # Check required features
+        # Validate required features
         missing = [col for col in feature_columns if col not in df.columns]
         if missing:
             return jsonify({"error": f"Missing feature columns: {missing}"}), 400
 
-        # Predict
+        # Keep only necessary columns in correct order
         df = df[feature_columns]
-        predictions = model.predict(df)
-        decoded = label_encoder.inverse_transform(predictions)
 
-        return jsonify({"predictions": decoded.tolist()})
+        # Make prediction
+        predictions = model.predict(df)
+        predicted_labels = label_encoder.inverse_transform(predictions)
+
+        print("✅ Predictions:", predicted_labels.tolist())
+        return jsonify({"predictions": predicted_labels.tolist()})
 
     except Exception as e:
-        print("🔥 Internal error:", str(e))
+        print("🔥 Error during prediction:", str(e))
         return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=8000)
+    app.run(host='0.0.0.0', port=8000, debug=True)
