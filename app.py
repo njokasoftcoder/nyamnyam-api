@@ -1,15 +1,26 @@
 from flask import Flask, request, jsonify
 import joblib
 import pandas as pd
+import logging
+from typing import Dict, Any
 
 app = Flask(__name__)
 
-# Load trained model and label encoder
-model = joblib.load('match_outcome_model.pkl')
-label_encoder = joblib.load('label_encoder.pkl')
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-# Define the exact feature columns expected by the model
-feature_columns = [
+# Load model and label encoder
+try:
+    model = joblib.load('match_outcome_model.pkl')
+    label_encoder = joblib.load('label_encoder.pkl')
+    logger.info("Model and label encoder loaded successfully")
+except Exception as e:
+    logger.error(f"Error loading model files: {str(e)}")
+    raise
+
+# Feature columns must match model training exactly
+FEATURE_COLUMNS = [
     'OddsHome', 'DrawOdds', 'AwayOdds',
     'SofascoreRatingHomeTeam', 'SofascoreRatingAwayTeam',
     'NumberofmatchesplayedHometeam', 'NumberofmatchesplayedAwayteam',
@@ -30,44 +41,65 @@ feature_columns = [
     'Tacklespergamehometeam', 'Tacklespergameawayteam',
     'ClearancespergameHometeam', 'Clearancespergameawayteam',
     'PenaltygoalsconcededHometeam', 'PenaltygoalsconcededAwayteam',
-    'Savespergame',
-    'DuelswonpergameHometeam', 'DuelswonpergameAwayteam',
+    'Savespergame', 'DuelswonpergameHometeam', 'DuelswonpergameAwayteam',
     'FoulspergameHometeam', 'FoulspergameAwayteam'
 ]
 
+def validate_input(input_data: Dict[str, Any]) -> bool:
+    """Validate that input contains all required features with numeric values."""
+    if not all(col in input_data for col in FEATURE_COLUMNS):
+        missing = [col for col in FEATURE_COLUMNS if col not in input_data]
+        logger.error(f"Missing features in input: {missing}")
+        return False
+    
+    if not all(isinstance(input_data[col], (int, float)) for col in FEATURE_COLUMNS):
+        invalid = [col for col in FEATURE_COLUMNS if not isinstance(input_data[col], (int, float))]
+        logger.error(f"Non-numeric values found for features: {invalid}")
+        return False
+    
+    return True
+
 @app.route('/predict', methods=['POST'])
 def predict():
-    try:
-        # Parse input JSON (list of dicts)
-        data = request.get_json(force=True)
-        print("📥 Received JSON data:", data)
-
-        if not isinstance(data, list):
-            return jsonify({"error": "Input must be a list of match records (list of dicts)."}), 400
-
-        # Convert to DataFrame
-        df = pd.DataFrame(data)
-        print("📊 Converted DataFrame:")
-        print(df.head())
-
-        # Check for missing columns
-        missing_cols = [col for col in feature_columns if col not in df.columns]
-        if missing_cols:
-            return jsonify({"error": f"Missing required fields: {missing_cols}"}), 400
-
-        # Ensure columns are in correct order
-        X = df[feature_columns]
-
-        # Predict
-        predictions = model.predict(X)
-        decoded = label_encoder.inverse_transform(predictions)
-
-        # Return result
-        return jsonify({"predictions": decoded.tolist()})
+    """
+    Predict match outcome based on input features.
     
+    Expects JSON input with all required features as numeric values.
+    Returns JSON with prediction ('Home', 'Draw', or 'Away') or error message.
+    """
+    try:
+        # Get and validate input data
+        input_data = request.get_json()
+        if not input_data:
+            return jsonify({"error": "No input data provided"}), 400
+        
+        if not validate_input(input_data):
+            return jsonify({"error": "Invalid input data"}), 400
+        
+        # Prepare DataFrame with correct column order
+        input_df = pd.DataFrame([input_data], columns=FEATURE_COLUMNS)
+        
+        # Make prediction
+        prediction = model.predict(input_df)
+        predicted_label = label_encoder.inverse_transform(prediction)[0]
+        
+        logger.info(f"Prediction successful: {predicted_label}")
+        return jsonify({
+            "prediction": predicted_label,
+            "status": "success"
+        })
+        
     except Exception as e:
-        print("❌ Error during prediction:", str(e))
-        return jsonify({"error": str(e)}), 500
+        logger.error(f"Prediction error: {str(e)}")
+        return jsonify({
+            "error": str(e),
+            "status": "error"
+        }), 500
+
+@app.route('/health', methods=['GET'])
+def health_check():
+    """Health check endpoint"""
+    return jsonify({"status": "healthy"}), 200
 
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=8000)
+    app.run(host='0.0.0.0', port=5000, debug=True)
