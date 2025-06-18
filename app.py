@@ -1,15 +1,14 @@
 from flask import Flask, request, jsonify
 import joblib
-import numpy as np
 import pandas as pd
 
 app = Flask(__name__)
 
-# Load the trained model and label encoder
+# Load model and label encoder
 model = joblib.load('match_outcome_model.pkl')
 label_encoder = joblib.load('label_encoder.pkl')
 
-# Define all feature columns (must match model training)
+# Your actual feature columns (must match model training exactly)
 feature_columns = [
     'OddsHome', 'DrawOdds', 'AwayOdds',
     'SofascoreRatingHomeTeam', 'SofascoreRatingAwayTeam',
@@ -31,56 +30,39 @@ feature_columns = [
     'Tacklespergamehometeam', 'Tacklespergameawayteam',
     'ClearancespergameHometeam', 'Clearancespergameawayteam',
     'PenaltygoalsconcededHometeam', 'PenaltygoalsconcededAwayteam',
-    'Savespergame',
-    'DuelswonpergameHometeam', 'DuelswonpergameAwayteam',
-    'FoulspergameHometeam', 'FoulspergameAwayteam',
-    'OffsidespergameHometeam', 'OffsidespergameAwayteam',
-    'GoalkickspergameHometeam', 'GoalkickspergameAwayteam',
-    'TotalthrowinsHometeam', 'TotalthrowinsAwayteam',
-    'TotalyellowcardsawardedHometeam', 'TotalyellowcardsawardedAwayteam',
-    'TotalRedcardsawardedHometeam', 'TotalRedcardsawardedAwayteam',
-    'TotalshotspergameHometeam', 'TotalshotspergameAwayteam',
-    'ShotsofftargetpergameHometeam', 'ShotsofftargetpergameAwayteam',
-    'BlockedshotspergameHometeam', 'BlockedshotspergameAwayteam',
-    'CornerspergameHometeam', 'CornerspergameAwayteam',
-    'FreekickspergameHometeam', 'FreekickspergameAwayteam',
-    'HitwoodworkHometeam', 'HitwoodworkAwayteam',
-    'CounterattacksHometeam', 'CounterattacksAwayteam',
-    'LeaguePositionHomeTeam', 'LeaguePositionAwayTeam',
-    'TotalPointsHome', 'TotalPointsAway'
+    'Savespergame', 'DuelswonpergameHometeam', 'DuelswonpergameAwayteam',
+    'FoulspergameHometeam', 'FoulspergameAwayteam'
 ]
 
 @app.route('/predict', methods=['POST'])
 def predict():
     try:
-        data = request.get_json()
-        print("📥 Received data:", data)
+        # Get input JSON
+        data = request.get_json(force=True)
+        print("📥 Incoming data:", data)
 
-        # Convert input to DataFrame
-        if isinstance(data, list):
-            df = pd.DataFrame(data)
-        elif isinstance(data, dict):
-            df = pd.DataFrame([data])
-        else:
-            return jsonify({"error": "Input should be a list or dict"}), 400
+        # Ensure it's a list of records
+        if not isinstance(data, list):
+            return jsonify({"error": "Input must be a list of match records"}), 400
 
-        # Validate feature columns
+        # Convert to DataFrame
+        df = pd.DataFrame(data)
+
+        # Check all required features are present
         missing = [col for col in feature_columns if col not in df.columns]
         if missing:
-            return jsonify({"error": f"Missing feature columns: {missing}"}), 400
+            return jsonify({"error": f"Missing required features: {missing}"}), 400
 
-        # Prepare input data for prediction
-        df = df[feature_columns]
+        # Select and reorder columns
+        X = df[feature_columns]
 
-        # Run prediction
-        predictions = model.predict(df)
-        predicted_labels = label_encoder.inverse_transform(predictions)
+        # Predict
+        predictions = model.predict(X)
+        labels = label_encoder.inverse_transform(predictions)
 
-        print("✅ Predictions:", predicted_labels.tolist())
-        return jsonify({"predictions": predicted_labels.tolist()})
-
+        return jsonify({"predictions": labels.tolist()})
     except Exception as e:
-        print("🔥 Error during prediction:", str(e))
+        print("🔥 Error:", str(e))
         return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
