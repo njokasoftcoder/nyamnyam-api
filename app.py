@@ -2,7 +2,6 @@ from flask import Flask, request, jsonify
 import joblib
 import pandas as pd
 import logging
-from typing import Dict, Any, Union, List
 
 app = Flask(__name__)
 
@@ -10,16 +9,17 @@ app = Flask(__name__)
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Load model and label encoder
+# Load model components
 try:
     model = joblib.load('match_outcome_model.pkl')
     label_encoder = joblib.load('label_encoder.pkl')
-    logger.info("Model and label encoder loaded successfully")
+    logger.info("Model components loaded successfully")
 except Exception as e:
-    logger.error(f"Error loading model files: {str(e)}")
+    logger.error(f"Failed to load model files: {str(e)}")
     raise
 
-FEATURE_COLUMNS = [
+# Complete feature set - must match training exactly
+REQUIRED_FEATURES = [
     'OddsHome', 'DrawOdds', 'AwayOdds',
     'SofascoreRatingHomeTeam', 'SofascoreRatingAwayTeam',
     'NumberofmatchesplayedHometeam', 'NumberofmatchesplayedAwayteam',
@@ -44,52 +44,54 @@ FEATURE_COLUMNS = [
     'FoulspergameHometeam', 'FoulspergameAwayteam'
 ]
 
+def validate_input(input_data):
+    """Ensure input contains all required features with numeric values."""
+    if isinstance(input_data, list):
+        if not input_data:
+            raise ValueError("Empty list provided")
+        input_data = input_data[0]  # Use first item if list
+    
+    if not isinstance(input_data, dict):
+        raise ValueError("Input must be a dictionary or list containing one dictionary")
+    
+    missing = [f for f in REQUIRED_FEATURES if f not in input_data]
+    if missing:
+        raise ValueError(f"Missing required features: {missing}")
+    
+    non_numeric = [f for f in REQUIRED_FEATURES if not isinstance(input_data.get(f), (int, float))]
+    if non_numeric:
+        raise ValueError(f"Non-numeric values found for features: {non_numeric}")
+    
+    return input_data
+
 @app.route('/predict', methods=['POST'])
 def predict():
-    """Handle prediction requests for match outcomes."""
+    """Handle match outcome prediction requests."""
     try:
-        # Get input data
-        input_data = request.get_json()
+        # Get and validate input
+        raw_data = request.get_json()
+        if raw_data is None:
+            return jsonify({"error": "No data provided"}), 400
         
-        # Handle list input (take first element if it's a list)
-        if isinstance(input_data, list):
-            if not input_data:
-                return jsonify({"error": "Empty list provided"}), 400
-            input_data = input_data[0]
-            if len(input_data) > 1:
-                logger.warning("Received list with multiple items, using first item only")
+        input_data = validate_input(raw_data)
         
-        # Validate input is a dictionary
-        if not isinstance(input_data, dict):
-            return jsonify({"error": "Input must be a JSON object or list containing one JSON object"}), 400
-        
-        # Check for missing features
-        missing_features = [col for col in FEATURE_COLUMNS if col not in input_data]
-        if missing_features:
-            return jsonify({
-                "error": "Missing required features",
-                "missing_features": missing_features,
-                "status": "error"
-            }), 400
-        
-        # Prepare DataFrame
-        input_df = pd.DataFrame([input_data], columns=FEATURE_COLUMNS)
+        # Create DataFrame with correct feature order
+        input_df = pd.DataFrame([input_data], columns=REQUIRED_FEATURES)
         
         # Make prediction
         prediction = model.predict(input_df)
-        predicted_label = label_encoder.inverse_transform(prediction)[0]
+        outcome = label_encoder.inverse_transform(prediction)[0]
         
         return jsonify({
-            "prediction": predicted_label,
+            "prediction": outcome,
             "status": "success"
         })
         
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
     except Exception as e:
         logger.error(f"Prediction failed: {str(e)}", exc_info=True)
-        return jsonify({
-            "error": "Internal server error",
-            "status": "error"
-        }), 500
+        return jsonify({"error": "Internal server error"}), 500
 
 @app.route('/health', methods=['GET'])
 def health_check():
