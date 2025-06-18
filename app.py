@@ -18,8 +18,8 @@ except Exception as e:
     logger.error(f"Failed to load model files: {str(e)}")
     raise
 
-# Complete feature set - must match training exactly
-REQUIRED_FEATURES = [
+# Complete feature set from your test data
+FEATURE_COLUMNS = [
     'OddsHome', 'DrawOdds', 'AwayOdds',
     'SofascoreRatingHomeTeam', 'SofascoreRatingAwayTeam',
     'NumberofmatchesplayedHometeam', 'NumberofmatchesplayedAwayteam',
@@ -41,8 +41,27 @@ REQUIRED_FEATURES = [
     'ClearancespergameHometeam', 'Clearancespergameawayteam',
     'PenaltygoalsconcededHometeam', 'PenaltygoalsconcededAwayteam',
     'Savespergame', 'DuelswonpergameHometeam', 'DuelswonpergameAwayteam',
-    'FoulspergameHometeam', 'FoulspergameAwayteam'
+    'FoulspergameHometeam', 'FoulspergameAwayteam',
+    'OffsidespergameHometeam', 'OffsidespergameAwayteam',
+    'GoalkickspergameHometeam', 'GoalkickspergameAwayteam',
+    'TotalthrowinsHometeam', 'TotalthrowinsAwayteam',
+    'TotalyellowcardsawardedHometeam', 'TotalyellowcardsawardedAwayteam',
+    'TotalRedcardsawardedHometeam', 'TotalRedcardsawardedAwayteam',
+    'LeaguePositionHomeTeam', 'LeaguePositionAwayTeam',
+    'TotalPointsHome', 'TotalPointsAway',
+    'TotalshotspergameHometeam', 'TotalshotspergameAwayteam',
+    'ShotsofftargetpergameHometeam', 'ShotsofftargetpergameAwayteam',
+    'BlockedshotspergameHometeam', 'BlockedshotspergameAwayteam',
+    'CornerspergameHometeam', 'CornerspergameAwayteam',
+    'FreekickspergameHometeam', 'FreekickspergameAwayteam',
+    'HitwoodworkHometeam', 'HitwoodworkAwayteam',
+    'CounterattacksHometeam', 'CounterattacksAwayteam'
 ]
+
+# Note: Removed string-based features that won't work with numeric models:
+# - FormHomeTeam
+# - FormAwayTeam 
+# - H2H(Latestooldest)
 
 def validate_input(input_data):
     """Ensure input contains all required features with numeric values."""
@@ -54,11 +73,21 @@ def validate_input(input_data):
     if not isinstance(input_data, dict):
         raise ValueError("Input must be a dictionary or list containing one dictionary")
     
-    missing = [f for f in REQUIRED_FEATURES if f not in input_data]
+    # Check for missing features
+    missing = [f for f in FEATURE_COLUMNS if f not in input_data]
     if missing:
         raise ValueError(f"Missing required features: {missing}")
     
-    non_numeric = [f for f in REQUIRED_FEATURES if not isinstance(input_data.get(f), (int, float))]
+    # Check for non-numeric values
+    non_numeric = []
+    for feature in FEATURE_COLUMNS:
+        value = input_data.get(feature)
+        if not isinstance(value, (int, float)):
+            try:
+                input_data[feature] = float(value)
+            except (ValueError, TypeError):
+                non_numeric.append(feature)
+    
     if non_numeric:
         raise ValueError(f"Non-numeric values found for features: {non_numeric}")
     
@@ -76,7 +105,7 @@ def predict():
         input_data = validate_input(raw_data)
         
         # Create DataFrame with correct feature order
-        input_df = pd.DataFrame([input_data], columns=REQUIRED_FEATURES)
+        input_df = pd.DataFrame([input_data], columns=FEATURE_COLUMNS)
         
         # Make prediction
         prediction = model.predict(input_df)
@@ -98,4 +127,4 @@ def health_check():
     return jsonify({"status": "healthy"}), 200
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    app.run(host='0.0.0.0', port=8000, debug=True)
