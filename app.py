@@ -44,32 +44,26 @@ FEATURE_COLUMNS = [
     'FoulspergameHometeam', 'FoulspergameAwayteam'
 ]
 
-def prepare_input(raw_data: Union[Dict, List]) -> Dict:
-    """Handle both dictionary and list inputs."""
-    if raw_data is None:
-        raise ValueError("No data provided")
-    
-    if isinstance(raw_data, list):
-        if not raw_data:
-            raise ValueError("Empty list provided")
-        if len(raw_data) > 1:
-            logger.warning("List contains multiple items - using first item only")
-        return raw_data[0]
-    
-    if isinstance(raw_data, dict):
-        return raw_data
-    
-    raise ValueError(f"Expected dict or list, got {type(raw_data)}")
-
 @app.route('/predict', methods=['POST'])
 def predict():
-    """Handle prediction requests."""
+    """Handle prediction requests for match outcomes."""
     try:
-        # Get and prepare input data
-        raw_data = request.get_json()
-        input_data = prepare_input(raw_data)
+        # Get input data
+        input_data = request.get_json()
         
-        # Validate features
+        # Handle list input (take first element if it's a list)
+        if isinstance(input_data, list):
+            if not input_data:
+                return jsonify({"error": "Empty list provided"}), 400
+            input_data = input_data[0]
+            if len(input_data) > 1:
+                logger.warning("Received list with multiple items, using first item only")
+        
+        # Validate input is a dictionary
+        if not isinstance(input_data, dict):
+            return jsonify({"error": "Input must be a JSON object or list containing one JSON object"}), 400
+        
+        # Check for missing features
         missing_features = [col for col in FEATURE_COLUMNS if col not in input_data]
         if missing_features:
             return jsonify({
@@ -90,11 +84,6 @@ def predict():
             "status": "success"
         })
         
-    except ValueError as e:
-        return jsonify({
-            "error": str(e),
-            "status": "error"
-        }), 400
     except Exception as e:
         logger.error(f"Prediction failed: {str(e)}", exc_info=True)
         return jsonify({
