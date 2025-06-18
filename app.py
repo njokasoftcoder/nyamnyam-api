@@ -2,7 +2,7 @@ from flask import Flask, request, jsonify
 import joblib
 import pandas as pd
 import logging
-from typing import Dict, Any
+from typing import Dict, Any, Union
 
 app = Flask(__name__)
 
@@ -19,7 +19,6 @@ except Exception as e:
     logger.error(f"Error loading model files: {str(e)}")
     raise
 
-# Feature columns must match model training exactly
 FEATURE_COLUMNS = [
     'OddsHome', 'DrawOdds', 'AwayOdds',
     'SofascoreRatingHomeTeam', 'SofascoreRatingAwayTeam',
@@ -45,8 +44,18 @@ FEATURE_COLUMNS = [
     'FoulspergameHometeam', 'FoulspergameAwayteam'
 ]
 
-def validate_input(input_data: Dict[str, Any]) -> bool:
+def validate_input(input_data: Union[Dict[str, Any], list]) -> bool:
     """Validate that input contains all required features with numeric values."""
+    if isinstance(input_data, list):
+        if len(input_data) == 0:
+            logger.error("Empty list provided as input")
+            return False
+        input_data = input_data[0]  # Take first element if it's a list
+    
+    if not isinstance(input_data, dict):
+        logger.error(f"Expected dict, got {type(input_data)}")
+        return False
+    
     if not all(col in input_data for col in FEATURE_COLUMNS):
         missing = [col for col in FEATURE_COLUMNS if col not in input_data]
         logger.error(f"Missing features in input: {missing}")
@@ -64,17 +73,24 @@ def predict():
     """
     Predict match outcome based on input features.
     
-    Expects JSON input with all required features as numeric values.
+    Accepts either:
+    - A single JSON object with all features
+    - A list containing one JSON object with all features
+    
     Returns JSON with prediction ('Home', 'Draw', or 'Away') or error message.
     """
     try:
         # Get and validate input data
         input_data = request.get_json()
-        if not input_data:
+        if input_data is None:
             return jsonify({"error": "No input data provided"}), 400
         
         if not validate_input(input_data):
-            return jsonify({"error": "Invalid input data"}), 400
+            return jsonify({"error": "Invalid input data format or values"}), 400
+        
+        # Handle both list and dict input
+        if isinstance(input_data, list):
+            input_data = input_data[0]  # Take first element if it's a list
         
         # Prepare DataFrame with correct column order
         input_df = pd.DataFrame([input_data], columns=FEATURE_COLUMNS)
@@ -90,9 +106,10 @@ def predict():
         })
         
     except Exception as e:
-        logger.error(f"Prediction error: {str(e)}")
+        logger.error(f"Prediction error: {str(e)}", exc_info=True)
         return jsonify({
-            "error": str(e),
+            "error": "Internal server error",
+            "details": str(e),
             "status": "error"
         }), 500
 
