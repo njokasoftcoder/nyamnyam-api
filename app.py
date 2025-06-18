@@ -1,28 +1,16 @@
-import os
-import pandas as pd
-import numpy as np
-from flask import Flask, request, render_template, send_file
+from flask import Flask, request, jsonify
 import joblib
-from werkzeug.utils import secure_filename
-from datetime import datetime
+import numpy as np
+import pandas as pd
 
-# Flask app setup
 app = Flask(__name__)
-app.config['UPLOAD_FOLDER'] = 'uploads'
-app.config['ALLOWED_EXTENSIONS'] = {'csv'}
 
-# Load trained model
+# Load the trained model and label encoder
 model = joblib.load('match_outcome_model.pkl')
+label_encoder = joblib.load('label_encoder.pkl')
 
-# Ensure upload folder exists
-os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
-
-# Allowed file check
-def allowed_file(filename):
-    return '.' in filename and filename.rsplit('.', 1)[1].lower() in app.config['ALLOWED_EXTENSIONS']
-
-# Expected columns (from your feature list)
-EXPECTED_COLUMNS = [
+# Define all feature columns (MUST match training)
+feature_columns = [
     'OddsHome', 'DrawOdds', 'AwayOdds',
     'SofascoreRatingHomeTeam', 'SofascoreRatingAwayTeam',
     'NumberofmatchesplayedHometeam', 'NumberofmatchesplayedAwayteam',
@@ -43,7 +31,8 @@ EXPECTED_COLUMNS = [
     'Tacklespergamehometeam', 'Tacklespergameawayteam',
     'ClearancespergameHometeam', 'Clearancespergameawayteam',
     'PenaltygoalsconcededHometeam', 'PenaltygoalsconcededAwayteam',
-    'Savespergame', 'DuelswonpergameHometeam', 'DuelswonpergameAwayteam',
+    'Savespergame',
+    'DuelswonpergameHometeam', 'DuelswonpergameAwayteam',
     'FoulspergameHometeam', 'FoulspergameAwayteam',
     'OffsidespergameHometeam', 'OffsidespergameAwayteam',
     'GoalkickspergameHometeam', 'GoalkickspergameAwayteam',
@@ -54,74 +43,49 @@ EXPECTED_COLUMNS = [
     'LeaguePositionHomeTeam', 'LeaguePositionAwayTeam',
     'TotalPointsHome', 'TotalPointsAway',
     'TotalshotspergameHometeam', 'TotalshotspergameAwayteam',
-    'ShotsontargetpergameHometeam', 'ShotsontargetpergameAwayteam',
-    'ShotsofftargetpergameHometeam', 'Shotsofftargetpergame',
+    'ShotsofftargetpergameHometeam', 'ShotsofftargetpergameAwayteam',
     'BlockedshotspergameHometeam', 'BlockedshotspergameAwayteam',
     'CornerspergameHometeam', 'CornerspergameAwayteam',
     'FreekickspergameHometeam', 'FreekickspergameAwayteam',
     'HitwoodworkHometeam', 'HitwoodworkAwayteam',
-    'CounterattacksHometeam', 'CounterattacksAwayteam',
-    'H2H(Latestooldest)'
+    'CounterattacksHometeam', 'CounterattacksAwayteam'
 ]
 
-# Home route
-@app.route('/')
-def index():
-    return render_template('form.html')
+# Transform Form string to score
+def form_to_score(form_str):
+    if pd.isna(form_str):
+        return 0
+    scores = {'W': 3, 'D': 1, 'L': 0}
+    return sum(scores.get(char.upper(), 0) for char in str(form_str))
 
-# Upload + Predict route
-@app.route('/', methods=['POST'])
-def upload_predict():
-    if 'file' not in request.files:
-        return "No file part in the form."
+@app.route('/predict', methods=['POST'])
+def predict():
+    try:
+        input_data = request.get_json()
 
-    file = request.files['file']
-    if file.filename == '':
-        return "No file selected."
+        # Convert input to DataFrame
+        df = pd.DataFrame([input_data])
 
-    if file and allowed_file(file.filename):
-        filename = secure_filename(file.filename)
-        filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-        file.save(filepath)
+        # Ensure all required columns exist
+        for col in feature_columns:
+            if col not in df.columns:
+                df[col] = 0  # default fallback
 
-        try:
-            df = pd.read_csv(filepath)
+        # Transform Form columns
+        df['FormHomeTeam'] = df['FormHomeTeam'].apply(form_to_score)
+        df['FormAwayTeam'] = df['FormAwayTeam'].apply(form_to_score)
 
-            # Ensure expected columns exist
-            missing_cols = [col for col in EXPECTED_COLUMNS if col not in df.columns]
-            for col in missing_cols:
-                df[col] = 0  # default missing columns
+        # Reorder columns
+        df = df[feature_columns]
 
-            # Keep only expected columns in order
-            df_model = df[EXPECTED_COLUMNS].copy()
+        # Predict
+        prediction = model.predict(df)[0]
+        prediction_label = label_encoder.inverse_transform([prediction])[0]
 
-            # Convert to numeric (any stray strings become NaN)
-            df_model = df_model.apply(pd.to_numeric, errors='coerce').fillna(0)
+        return jsonify({'prediction': prediction_label})
 
-            # Run prediction
-            prediction = model.predict(df_model)
-            label_map = {0: "Home Win", 1: "Draw", 2: "Away Win"}
-            df['Prediction'] = [label_map.get(p, "Unknown") for p in prediction]
-            df.insert(0, 'Match No.', range(1, len(df) + 1))
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
 
-            # Save results
-            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-            output_filename = f'predicted_results_{timestamp}.csv'
-            output_path = os.path.join(app.config['UPLOAD_FOLDER'], output_filename)
-            df.to_csv(output_path, index=False)
-
-            return render_template('results.html', tables=[df.to_html(classes='data', index=False)], filename=output_filename)
-
-        except Exception as e:
-            return f"❌ Error during prediction: {str(e)}"
-
-    return "❌ Invalid file format. Please upload a .csv file."
-
-# Route to download result
-@app.route('/download/<filename>')
-def download_file(filename):
-    return send_file(os.path.join(app.config['UPLOAD_FOLDER'], filename), as_attachment=True)
-
-# Run the app
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=8000, debug=True)
+    app.run(debug=True)
