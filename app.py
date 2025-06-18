@@ -1,68 +1,73 @@
 from flask import Flask, request, jsonify
 import joblib
 import pandas as pd
-import logging
 
-# Initialize Flask app
 app = Flask(__name__)
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# Load trained model and label encoder
+model = joblib.load('match_outcome_model.pkl')
+label_encoder = joblib.load('label_encoder.pkl')
 
-# Load model components
-try:
-    model = joblib.load('match_outcome_model.pkl')
-    label_encoder = joblib.load('label_encoder.pkl')
-    logger.info("Model components loaded successfully")
-except Exception as e:
-    logger.error(f"Failed to load model files: {str(e)}")
-    raise
-
-# Define feature columns - ONLY NUMERIC FEATURES
-FEATURE_COLUMNS = [
+# Define the exact feature columns expected by the model
+feature_columns = [
     'OddsHome', 'DrawOdds', 'AwayOdds',
     'SofascoreRatingHomeTeam', 'SofascoreRatingAwayTeam',
-    # ... include ALL other numeric features from your test data ...
-    # BUT REMOVE ALL STRING FEATURES LIKE FormHomeTeam, H2H, etc.
+    'NumberofmatchesplayedHometeam', 'NumberofmatchesplayedAwayteam',
+    'TotalgoalsscoredintheseasonHometeam', 'TotalgoalsscoredintheseasonAwayteam',
+    'TotalgoalsconcededHomeTeam', 'TotalgoalsconcededAwayteam',
+    'TotalassistsHometeam', 'TotalassistsAwayteam',
+    'GoalspergameHometeam', 'GoalspergameAwayteam',
+    'Goalconversion(Hometeam)', 'Goalconversion(Awayteam)',
+    'ShotsontargetpergameHometeam', 'Shotsontargetpergameawayteam',
+    'Bigchancespergamehometeam', 'Bigchancespergamehometeamawayteam',
+    'BigchancesmissedpergameHometeam', 'BigchancesmissedpergameAwayteam',
+    'Ballpossessionhometeam', 'Ballpossessionawayteam',
+    'Accuratepassespergamehometeam', 'Accuratepassespergameawayteam',
+    'Accuratelongballspergamehometeam', 'Accuratelongballspergameawayteam',
+    'CleansheetsHometeam', 'CleansheetsAwayteam',
+    'Goalsconcededpergamehometeam', 'Goalsconcededpergameawayteam',
+    'InterceptionspergameHometeam', 'InterceptionspergameAwayteam',
+    'Tacklespergamehometeam', 'Tacklespergameawayteam',
+    'ClearancespergameHometeam', 'Clearancespergameawayteam',
+    'PenaltygoalsconcededHometeam', 'PenaltygoalsconcededAwayteam',
+    'Savespergame',
+    'DuelswonpergameHometeam', 'DuelswonpergameAwayteam',
+    'FoulspergameHometeam', 'FoulspergameAwayteam'
 ]
 
 @app.route('/predict', methods=['POST'])
 def predict():
-    """Simplified prediction endpoint"""
     try:
-        # Get raw input data
-        raw_data = request.get_json()
-        
-        # Convert list input to dict if needed
-        if isinstance(raw_data, list):
-            if not raw_data:
-                return jsonify({"error": "Empty list provided"}), 400
-            raw_data = raw_data[0]
-        
-        # Validate input is a dictionary
-        if not isinstance(raw_data, dict):
-            return jsonify({"error": "Input must be JSON object or list with one object"}), 400
-        
-        # Prepare DataFrame - will automatically select only FEATURE_COLUMNS
-        input_df = pd.DataFrame([raw_data])[FEATURE_COLUMNS]
-        
-        # Make prediction
-        prediction = model.predict(input_df)
-        outcome = label_encoder.inverse_transform(prediction)[0]
-        
-        return jsonify({
-            "prediction": outcome,
-            "status": "success"
-        })
-        
-    except Exception as e:
-        logger.error(f"Prediction error: {str(e)}", exc_info=True)
-        return jsonify({"error": "Prediction failed", "details": str(e)}), 500
+        # Parse input JSON (list of dicts)
+        data = request.get_json(force=True)
+        print("📥 Received JSON data:", data)
 
-@app.route('/health', methods=['GET'])
-def health_check():
-    return jsonify({"status": "healthy"}), 200
+        if not isinstance(data, list):
+            return jsonify({"error": "Input must be a list of match records (list of dicts)."}), 400
+
+        # Convert to DataFrame
+        df = pd.DataFrame(data)
+        print("📊 Converted DataFrame:")
+        print(df.head())
+
+        # Check for missing columns
+        missing_cols = [col for col in feature_columns if col not in df.columns]
+        if missing_cols:
+            return jsonify({"error": f"Missing required fields: {missing_cols}"}), 400
+
+        # Ensure columns are in correct order
+        X = df[feature_columns]
+
+        # Predict
+        predictions = model.predict(X)
+        decoded = label_encoder.inverse_transform(predictions)
+
+        # Return result
+        return jsonify({"predictions": decoded.tolist()})
+    
+    except Exception as e:
+        print("❌ Error during prediction:", str(e))
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=8000)
+    app.run(debug=True, host='0.0.0.0', port=8000)
