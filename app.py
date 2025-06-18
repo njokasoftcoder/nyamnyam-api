@@ -1,14 +1,15 @@
 from flask import Flask, request, jsonify
 import joblib
+import numpy as np
 import pandas as pd
 
 app = Flask(__name__)
 
-# Load trained model and label encoder
+# Load the trained model and label encoder
 model = joblib.load('match_outcome_model.pkl')
 label_encoder = joblib.load('label_encoder.pkl')
 
-# List of expected feature columns (must match training order)
+# Define all feature columns (must match model training)
 feature_columns = [
     'OddsHome', 'DrawOdds', 'AwayOdds',
     'SofascoreRatingHomeTeam', 'SofascoreRatingAwayTeam',
@@ -38,9 +39,6 @@ feature_columns = [
     'TotalthrowinsHometeam', 'TotalthrowinsAwayteam',
     'TotalyellowcardsawardedHometeam', 'TotalyellowcardsawardedAwayteam',
     'TotalRedcardsawardedHometeam', 'TotalRedcardsawardedAwayteam',
-    'FormHomeTeam', 'FormAwayTeam',
-    'LeaguePositionHomeTeam', 'LeaguePositionAwayTeam',
-    'TotalPointsHome', 'TotalPointsAway',
     'TotalshotspergameHometeam', 'TotalshotspergameAwayteam',
     'ShotsofftargetpergameHometeam', 'ShotsofftargetpergameAwayteam',
     'BlockedshotspergameHometeam', 'BlockedshotspergameAwayteam',
@@ -48,7 +46,8 @@ feature_columns = [
     'FreekickspergameHometeam', 'FreekickspergameAwayteam',
     'HitwoodworkHometeam', 'HitwoodworkAwayteam',
     'CounterattacksHometeam', 'CounterattacksAwayteam',
-    'H2H(Latestooldest)'
+    'LeaguePositionHomeTeam', 'LeaguePositionAwayTeam',
+    'TotalPointsHome', 'TotalPointsAway'
 ]
 
 @app.route('/predict', methods=['POST'])
@@ -57,7 +56,7 @@ def predict():
         data = request.get_json()
         print("📥 Received data:", data)
 
-        # Handle both list and single match input
+        # Convert input to DataFrame
         if isinstance(data, list):
             df = pd.DataFrame(data)
         elif isinstance(data, dict):
@@ -65,15 +64,15 @@ def predict():
         else:
             return jsonify({"error": "Input should be a list or dict"}), 400
 
-        # Validate required features
+        # Validate feature columns
         missing = [col for col in feature_columns if col not in df.columns]
         if missing:
             return jsonify({"error": f"Missing feature columns: {missing}"}), 400
 
-        # Keep only necessary columns in correct order
+        # Prepare input data for prediction
         df = df[feature_columns]
 
-        # Make prediction
+        # Run prediction
         predictions = model.predict(df)
         predicted_labels = label_encoder.inverse_transform(predictions)
 
@@ -85,4 +84,4 @@ def predict():
         return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=8000, debug=True)
+    app.run(debug=True, host='0.0.0.0', port=8000)
