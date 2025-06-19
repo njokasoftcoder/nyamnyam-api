@@ -1,15 +1,16 @@
 from flask import Flask, request, jsonify
 import joblib
+import numpy as np
 import pandas as pd
-import traceback
+import re
 
 app = Flask(__name__)
 
-# Load model and label encoder
+# Load the trained model and label encoder
 model = joblib.load('match_outcome_model.pkl')
 label_encoder = joblib.load('label_encoder.pkl')
 
-# Define feature columns (must match those used during training)
+# Define all expected feature columns
 feature_columns = [
     'OddsHome', 'DrawOdds', 'AwayOdds',
     'SofascoreRatingHomeTeam', 'SofascoreRatingAwayTeam',
@@ -51,41 +52,84 @@ feature_columns = [
     'H2H_HomeWins', 'H2H_Draws', 'H2H_Losses'
 ]
 
+def compute_h2h_stats(h2h_string, home_team_name):
+    home_wins = draws = losses = 0
+    matches = h2h_string.split(',')
+
+    for match in matches:
+        match = match.strip()
+        score_match = re.search(r'\((\d+):(\d+)\)', match)
+        if not score_match:
+            continue
+        home_goals = int(score_match.group(1))
+        away_goals = int(score_match.group(2))
+
+        if f"{home_team_name}" in match.split('vs')[0].strip():
+            # home_team was playing at home
+            if home_goals > away_goals:
+                home_wins += 1
+            elif home_goals == away_goals:
+                draws += 1
+            else:
+                losses += 1
+        else:
+            # home_team was playing away
+            if home_goals < away_goals:
+                home_wins += 1
+            elif home_goals == away_goals:
+                draws += 1
+            else:
+                losses += 1
+
+    return home_wins, draws, losses
+
 @app.route('/')
 def home():
-    return "✅ Nyam Nyam Confidence Fire Prediction API is live."
+    return "Nyam Nyam Confidence Fire Prediction is 🔥 live."
 
 @app.route('/predict', methods=['POST'])
 def predict():
     try:
-        data = request.get_json()
+        input_data = request.get_json()
+        if isinstance(input_data, dict):
+            input_data = [input_data]
 
-        # Log incoming data
-        print("📥 Incoming data:", data)
+        df = pd.DataFrame(input_data)
 
-        if isinstance(data, dict):
-            data = [data]
+        # Check and compute H2H if available
+        if 'H2H(Latestooldest)' in df.columns:
+            h2h_home_wins = []
+            h2h_draws = []
+            h2h_losses = []
+            for idx, row in df.iterrows():
+                home_team = row.get("League_Home", "Home")  # Or another field if appropriate
+                h2h_str = row["H2H(Latestooldest)"]
+                wins, draws_, losses = compute_h2h_stats(h2h_str, home_team)
+                h2h_home_wins.append(wins)
+                h2h_draws.append(draws_)
+                h2h_losses.append(losses)
 
-        df = pd.DataFrame(data)
+            df['H2H_HomeWins'] = h2h_home_wins
+            df['H2H_Draws'] = h2h_draws
+            df['H2H_Losses'] = h2h_losses
+            df.drop(columns=["H2H(Latestooldest)"], inplace=True)
 
-        # Handle missing columns
+        # Fill missing columns with 0
         for col in feature_columns:
             if col not in df.columns:
-                print(f"⚠️ Missing column: {col} — filling with 0")
                 df[col] = 0
 
         df = df[feature_columns]
 
-        predictions_encoded = model.predict(df)
-        predictions = label_encoder.inverse_transform(predictions_encoded)
+        prediction_encoded = model.predict(df)
+        predictions = label_encoder.inverse_transform(prediction_encoded)
 
         return jsonify({"predictions": predictions.tolist()})
 
     except Exception as e:
-        print("❌ An error occurred during prediction:")
         import traceback
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=8000)
+    app.run(host="0.0.0.0", port=8000)
