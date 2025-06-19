@@ -83,7 +83,8 @@ def predict():
 
     except Exception as e:
         print("❌ An error occurred during prediction:")
-        traceback.print_exc()  # Log full traceback to console
+        import traceback
+        traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
