@@ -5,11 +5,11 @@ import pandas as pd
 
 app = Flask(__name__)
 
-# Load the trained model and label encoder
+# Load model and encoder
 model = joblib.load('match_outcome_model.pkl')
 label_encoder = joblib.load('label_encoder.pkl')
 
-# Define all feature columns (must match the model training)
+# Define all expected feature columns (must match model training)
 feature_columns = [
     'OddsHome', 'DrawOdds', 'AwayOdds',
     'SofascoreRatingHomeTeam', 'SofascoreRatingAwayTeam',
@@ -60,23 +60,22 @@ def predict():
     try:
         input_data = request.get_json()
 
-        # Ensure we have a list of records
+        # Ensure input is a list of dicts
         if isinstance(input_data, dict):
             input_data = [input_data]
 
         df = pd.DataFrame(input_data)
 
-        # Fill in any missing columns with zero (assumes numeric-only features)
+        # Fill missing expected columns with default values (e.g., 0)
         for col in feature_columns:
             if col not in df.columns:
                 df[col] = 0
 
-        # Keep only the expected feature columns
         df = df[feature_columns]
 
-        # Make predictions
-        prediction_encoded = model.predict(df)
-        predictions = label_encoder.inverse_transform(prediction_encoded)
+        # Run prediction
+        encoded_preds = model.predict(df)
+        predictions = label_encoder.inverse_transform(encoded_preds)
 
         return jsonify({"predictions": predictions.tolist()})
 
