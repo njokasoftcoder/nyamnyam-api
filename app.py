@@ -1,30 +1,17 @@
 from flask import Flask, request, jsonify
 import joblib
+import numpy as np
 import pandas as pd
-import logging
-import sys
-import os
+import re
 
 app = Flask(__name__)
 
-# NUCLEAR OPTION - Verify we're running the right file
-print(f"🔥 NUCLEAR VERIFICATION - Running from: {os.path.abspath(__file__)}", file=sys.stderr)
-print("✅ THIS IS THE CLEAN VERSION WITHOUT ANY TEAM NAME CHECKS", file=sys.stderr)
+# Load the trained model and label encoder
+model = joblib.load('match_outcome_model.pkl')
+label_encoder = joblib.load('label_encoder.pkl')
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-# Load model - SIMPLIFIED VERSION
-try:
-    model = joblib.load('match_outcome_model.pkl')
-    logger.info("Model loaded successfully")
-except Exception as e:
-    logger.error(f"Model loading failed: {str(e)}")
-    raise
-
-# ONLY NUMERIC FEATURES - NO TEAM NAMES WHATSOEVER
-FEATURE_COLUMNS = [
+# Define all feature columns (MUST match training)
+feature_columns = [
     'OddsHome', 'DrawOdds', 'AwayOdds',
     'SofascoreRatingHomeTeam', 'SofascoreRatingAwayTeam',
     'NumberofmatchesplayedHometeam', 'NumberofmatchesplayedAwayteam',
@@ -45,57 +32,99 @@ FEATURE_COLUMNS = [
     'Tacklespergamehometeam', 'Tacklespergameawayteam',
     'ClearancespergameHometeam', 'Clearancespergameawayteam',
     'PenaltygoalsconcededHometeam', 'PenaltygoalsconcededAwayteam',
-    'Savespergame', 'DuelswonpergameHometeam', 'DuelswonpergameAwayteam',
-    'FoulspergameHometeam', 'FoulspergameAwayteam'
+    'Savespergame',
+    'DuelswonpergameHometeam', 'DuelswonpergameAwayteam',
+    'FoulspergameHometeam', 'FoulspergameAwayteam',
+    'OffsidespergameHometeam', 'OffsidespergameAwayteam',
+    'GoalkickspergameHometeam', 'GoalkickspergameAwayteam',
+    'TotalthrowinsHometeam', 'TotalthrowinsAwayteam',
+    'TotalyellowcardsawardedHometeam', 'TotalyellowcardsawardedAwayteam',
+    'TotalRedcardsawardedHometeam', 'TotalRedcardsawardedAwayteam',
+    'LeaguePositionHomeTeam', 'LeaguePositionAwayTeam',
+    'TotalPointsHome', 'TotalPointsAway',
+    'TotalshotspergameHometeam', 'TotalshotspergameAwayteam',
+    'ShotsofftargetpergameHometeam', 'ShotsofftargetpergameAwayteam',
+    'BlockedshotspergameHometeam', 'BlockedshotspergameAwayteam',
+    'CornerspergameHometeam', 'CornerspergameAwayteam',
+    'FreekickspergameHometeam', 'FreekickspergameAwayteam',
+    'HitwoodworkHometeam', 'HitwoodworkAwayteam',
+    'CounterattacksHometeam', 'CounterattacksAwayteam',
+    'H2H_HomeWins', 'H2H_Draws', 'H2H_Losses',
+    'Home_FormWins', 'Home_FormDraws', 'Home_FormLosses', 'Home_FormScore',
+    'Away_FormWins', 'Away_FormDraws', 'Away_FormLosses', 'Away_FormScore'
 ]
+
+def form_to_features(form_str):
+    form_str = str(form_str).upper()
+    return {
+        'Wins': form_str.count('W'),
+        'Draws': form_str.count('D'),
+        'Losses': form_str.count('L'),
+        'FormScore': form_str.count('W')*3 + form_str.count('D')
+    }
+
+def parse_h2h(h2h_str, home_team_name):
+    wins = draws = losses = 0
+    matches = re.findall(r'(\w+)\s+vs\s+(\w+)\s+\((\d+):(\d+)\)', str(h2h_str))
+    for team1, team2, score1, score2 in matches:
+        score1, score2 = int(score1), int(score2)
+        if team1 == home_team_name:
+            if score1 > score2: wins += 1
+            elif score1 == score2: draws += 1
+            else: losses += 1
+        elif team2 == home_team_name:
+            if score2 > score1: wins += 1
+            elif score1 == score2: draws += 1
+            else: losses += 1
+    return {
+        'H2H_HomeWins': wins,
+        'H2H_Draws': draws,
+        'H2H_Losses': losses
+    }
+
+@app.route('/')
+def home():
+    return "Nyam Nyam Confidence Fire Prediction is 🔥 live."
 
 @app.route('/predict', methods=['POST'])
 def predict():
-    """Nuclear-proof prediction endpoint"""
     try:
-        # Get raw input
-        raw_data = request.get_json()
-        logger.info(f"Raw input data type: {type(raw_data)}")
-        
-        # Convert list to dict if needed
-        if isinstance(raw_data, list):
-            if not raw_data:
-                return jsonify({"error": "Empty list provided"}), 400
-            raw_data = raw_data[0]
-        
-        # Validate input type
-        if not isinstance(raw_data, dict):
-            return jsonify({"error": "Input must be JSON object"}), 400
-        
-        # DEBUG: Show all received keys
-        logger.info(f"Received keys: {list(raw_data.keys())}")
-        
-        # Create DataFrame with ONLY our features
-        try:
-            input_df = pd.DataFrame([raw_data])[FEATURE_COLUMNS]
-        except KeyError as e:
-            missing = [col for col in FEATURE_COLUMNS if col not in raw_data]
-            return jsonify({
-                "error": "Missing required features",
-                "missing_features": missing,
-                "required_features": FEATURE_COLUMNS
-            }), 400
-        
-        # Make prediction
-        prediction = model.predict(input_df)
-        return jsonify({
-            "prediction": str(prediction[0]),
-            "status": "success",
-            "features_used": FEATURE_COLUMNS
-        })
-        
+        input_data = request.get_json()
+
+        if isinstance(input_data, dict):
+            input_data = [input_data]
+
+        df = pd.DataFrame(input_data)
+
+        # Form processing
+        if 'FormHomeTeam' in df.columns:
+            form_home = df['FormHomeTeam'].apply(form_to_features).apply(pd.Series).add_prefix('Home_Form')
+            df = pd.concat([df, form_home], axis=1)
+
+        if 'FormAwayTeam' in df.columns:
+            form_away = df['FormAwayTeam'].apply(form_to_features).apply(pd.Series).add_prefix('Away_Form')
+            df = pd.concat([df, form_away], axis=1)
+
+        # H2H processing
+        if 'H2H(Latestooldest)' in df.columns and 'HomeTeam' in df.columns:
+            h2h_counts = df.apply(lambda row: parse_h2h(row['H2H(Latestooldest)'], row['HomeTeam']), axis=1).apply(pd.Series)
+            df = pd.concat([df, h2h_counts], axis=1)
+
+        # Fill missing expected columns
+        for col in feature_columns:
+            if col not in df.columns:
+                df[col] = 0
+
+        # Keep only expected columns
+        df = df[feature_columns]
+
+        prediction_encoded = model.predict(df)
+        predictions = label_encoder.inverse_transform(prediction_encoded)
+
+        return jsonify({"predictions": predictions.tolist()})
+
     except Exception as e:
-        logger.error(f"COMPLETE FAILURE: {str(e)}", exc_info=True)
-        return jsonify({
-            "error": "Prediction failed",
-            "exception_type": str(type(e)),
-            "exception_details": str(e)
-        }), 500
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=8000, debug=True)
+    app.run(host='0.0.0.0', port=8000)
