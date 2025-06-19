@@ -1,122 +1,163 @@
 from flask import Flask, request, jsonify
 import joblib
+import numpy as np
 import pandas as pd
 import re
-import traceback
+from typing import Dict, List, Union
 
 app = Flask(__name__)
 
+# Load the trained model and label encoder
 model = joblib.load('match_outcome_model.pkl')
 label_encoder = joblib.load('label_encoder.pkl')
 
-# Feature columns
-feature_columns = [...]  # keep as is (your full standardized list)
-
-feature_columns = [
-    'OddsHomeTeam', 'DrawOdds', 'OddsAwayTeam',
+# Complete list of all expected feature columns
+FEATURE_COLUMNS = [
+    'OddsHome', 'DrawOdds', 'AwayOdds',
     'SofascoreRatingHomeTeam', 'SofascoreRatingAwayTeam',
-    'NumberofmatchesplayedHomeTeam', 'NumberofmatchesplayedAwayTeam',
-    'TotalgoalsscoredintheseasonHomeTeam', 'TotalgoalsscoredintheseasonAwayTeam',
-    'TotalgoalsconcededHomeTeam', 'TotalgoalsconcededAwayTeam',
-    'TotalassistsHomeTeam', 'TotalassistsAwayTeam',
-    'GoalspergameHomeTeam', 'GoalspergameAwayTeam',
-    'Goalconversion(HomeTeam)', 'Goalconversion(AwayTeam)',
-    'ShotsontargetpergameHomeTeam', 'ShotsontargetpergameawayTeam',
-    'BigchancespergamehomeTeam', 'BigchancespergamehomeTeamawayTeam',
-    'BigchancesmissedpergameHomeTeam', 'BigchancesmissedpergameAwayTeam',
-    'BallpossessionhomeTeam', 'BallpossessionawayTeam',
-    'AccuratepassespergamehomeTeam', 'AccuratepassespergameawayTeam',
-    'AccuratelongballspergamehomeTeam', 'AccuratelongballspergameawayTeam',
-    'CleansheetsHomeTeam', 'CleansheetsAwayTeam',
-    'GoalsconcededpergamehomeTeam', 'GoalsconcededpergameawayTeam',
-    'InterceptionspergameHomeTeam', 'InterceptionspergameAwayTeam',
-    'TacklespergamehomeTeam', 'TacklespergameawayTeam',
-    'ClearancespergameHomeTeam', 'ClearancespergameawayTeam',
-    'PenaltygoalsconcededHomeTeam', 'PenaltygoalsconcededAwayTeam',
+    'NumberofmatchesplayedHometeam', 'NumberofmatchesplayedAwayteam',
+    'TotalgoalsscoredintheseasonHometeam', 'TotalgoalsscoredintheseasonAwayteam',
+    'TotalgoalsconcededHomeTeam', 'TotalgoalsconcededAwayteam',
+    'TotalassistsHometeam', 'TotalassistsAwayteam',
+    'GoalspergameHometeam', 'GoalspergameAwayteam',
+    'Goalconversion(Hometeam)', 'Goalconversion(Awayteam)',
+    'ShotsontargetpergameHometeam', 'Shotsontargetpergameawayteam',
+    'Bigchancespergamehometeam', 'Bigchancespergamehometeamawayteam',
+    'BigchancesmissedpergameHometeam', 'BigchancesmissedpergameAwayteam',
+    'Ballpossessionhometeam', 'Ballpossessionawayteam',
+    'Accuratepassespergamehometeam', 'Accuratepassespergameawayteam',
+    'Accuratelongballspergamehometeam', 'Accuratelongballspergameawayteam',
+    'CleansheetsHometeam', 'CleansheetsAwayteam',
+    'Goalsconcededpergamehometeam', 'Goalsconcededpergameawayteam',
+    'InterceptionspergameHometeam', 'InterceptionspergameAwayteam',
+    'Tacklespergamehometeam', 'Tacklespergameawayteam',
+    'ClearancespergameHometeam', 'Clearancespergameawayteam',
+    'PenaltygoalsconcededHometeam', 'PenaltygoalsconcededAwayteam',
     'Savespergame',
-    'DuelswonpergameHomeTeam', 'DuelswonpergameAwayTeam',
-    'FoulspergameHomeTeam', 'FoulspergameAwayTeam',
-    'OffsidespergameHomeTeam', 'OffsidespergameAwayTeam',
-    'GoalkickspergameHomeTeam', 'GoalkickspergameAwayTeam',
-    'TotalthrowinsHomeTeam', 'TotalthrowinsAwayTeam',
-    'TotalyellowcardsawardedHomeTeam', 'TotalyellowcardsawardedAwayTeam',
-    'TotalRedcardsawardedHomeTeam', 'TotalRedcardsawardedAwayTeam',
+    'DuelswonpergameHometeam', 'DuelswonpergameAwayteam',
+    'FoulspergameHometeam', 'FoulspergameAwayteam',
+    'OffsidespergameHometeam', 'OffsidespergameAwayteam',
+    'GoalkickspergameHometeam', 'GoalkickspergameAwayteam',
+    'TotalthrowinsHometeam', 'TotalthrowinsAwayteam',
+    'TotalyellowcardsawardedHometeam', 'TotalyellowcardsawardedAwayteam',
+    'TotalRedcardsawardedHometeam', 'TotalRedcardsawardedAwayteam',
+    'FormHomeTeam', 'FormAwayTeam',
     'LeaguePositionHomeTeam', 'LeaguePositionAwayTeam',
     'TotalPointsHome', 'TotalPointsAway',
-    'TotalshotspergameHomeTeam', 'TotalshotspergameAwayTeam',
-    'ShotsontargetpergameHomeTeam', 'ShotsontargetpergameAwayTeam',
-    'ShotsofftargetpergameHomeTeam', 'ShotsofftargetpergameAwayTeam',
-    'BlockedshotspergameHomeTeam', 'BlockedshotspergameAwayTeam',
-    'CornerspergameHomeTeam', 'CornerspergameAwayTeam',
-    'FreekickspergameHomeTeam', 'FreekickspergameAwayTeam',
-    'HitwoodworkHomeTeam', 'HitwoodworkAwayTeam',
-    'CounterattacksHomeTeam', 'CounterattacksAwayTeam',
+    'TotalshotspergameHometeam', 'TotalshotspergameAwayteam',
+    'ShotsontargetpergameHometeam', 'ShotsontargetpergameAwayteam',
+    'ShotsofftargetpergameHometeam', 'ShotsofftargetpergameAwayteam',
+    'BlockedshotspergameHometeam', 'BlockedshotspergameAwayteam',
+    'CornerspergameHometeam', 'CornerspergameAwayteam',
+    'FreekickspergameHometeam', 'FreekickspergameAwayteam',
+    'HitwoodworkHometeam', 'HitwoodworkAwayteam',
+    'CounterattacksHometeam', 'CounterattacksAwayteam',
     'H2H_HomeWins', 'H2H_Draws', 'H2H_Losses'
 ]
 
-# H2H parsing helper
-def compute_h2h_stats(h2h_str, home_team):
-    home_win, draw, away_win = 0, 0, 0
-    matches = h2h_str.split(',')
+def compute_h2h_stats(h2h_string: str, home_team_name: str) -> tuple:
+    """Calculate head-to-head statistics from match history string."""
+    home_wins = draws = losses = 0
+    if not h2h_string or not isinstance(h2h_string, str):
+        return 0, 0, 0
+
+    matches = [m.strip() for m in h2h_string.split(',') if m.strip()]
+    
     for match in matches:
-        score = re.search(r"\((\d+):(\d+)\)", match)
-        if score:
-            home_goals, away_goals = map(int, score.groups())
+        score_match = re.search(r'\((\d+):(\d+)\)', match)
+        if not score_match:
+            continue
+            
+        home_goals, away_goals = map(int, score_match.groups())
+        teams = [t.strip() for t in match.split('vs')[:2]]
+        
+        if len(teams) != 2:
+            continue
+            
+        if home_team_name in teams[0]:  # Home team was home in this match
             if home_goals > away_goals:
-                home_win += 1
+                home_wins += 1
             elif home_goals == away_goals:
-                draw += 1
+                draws += 1
             else:
-                away_win += 1
-    return home_win, draw, away_win
+                losses += 1
+        else:  # Home team was away in this match
+            if away_goals > home_goals:
+                home_wins += 1
+            elif away_goals == home_goals:
+                draws += 1
+            else:
+                losses += 1
+                
+    return home_wins, draws, losses
+
+def preprocess_input(data: Union[Dict, List[Dict]]) -> pd.DataFrame:
+    """Convert and validate input data into proper feature DataFrame."""
+    df = pd.DataFrame(data if isinstance(data, list) else [data])
+    
+    # Add H2H features if available
+    if 'H2H(Latestooldest)' in df.columns:
+        df[['H2H_HomeWins', 'H2H_Draws', 'H2H_Losses']] = df.apply(
+            lambda row: compute_h2h_stats(
+                row['H2H(Latestooldest)'],
+                row.get('home_team', 'Home Team')
+            ),
+            axis=1, result_type='expand'
+        )
+        df.drop('H2H(Latestooldest)', axis=1, inplace=True)
+    
+    # Ensure all required columns exist
+    for col in FEATURE_COLUMNS:
+        if col not in df.columns:
+            df[col] = 0  # Fill missing columns with 0
+    
+    return df[FEATURE_COLUMNS]
+
+@app.route('/')
+def home():
+    return "Nyam Nyam Prediction API is running 🚀"
 
 @app.route('/predict', methods=['POST'])
 def predict():
     try:
+        # Input validation
+        if not request.is_json:
+            return jsonify({"error": "Request must be JSON"}), 400
+            
         input_data = request.get_json()
-        if isinstance(input_data, dict):
-            input_data = [input_data]
-
-        df = pd.DataFrame(input_data)
-
-        # H2H computation
-        if 'H2H(Latestooldest)' in df.columns:
-            h2h_home_wins, h2h_draws, h2h_losses = [], [], []
-            for idx, row in df.iterrows():
-                try:
-                    home_team = row["HomeTeam"] if "HomeTeam" in row else "Home"
-                    h2h_str = row["H2H(Latestooldest)"]
-                    wins, draws_, losses = compute_h2h_stats(h2h_str, home_team)
-                    h2h_home_wins.append(wins)
-                    h2h_draws.append(draws_)
-                    h2h_losses.append(losses)
-                except Exception:
-                    h2h_home_wins.append(0)
-                    h2h_draws.append(0)
-                    h2h_losses.append(0)
-
-            df["H2H_HomeWins"] = h2h_home_wins
-            df["H2H_Draws"] = h2h_draws
-            df["H2H_Losses"] = h2h_losses
-            df.drop(columns=["H2H(Latestooldest)"], inplace=True)
-
-        # Fill missing columns
-        for col in feature_columns:
-            if col not in df.columns:
-                df[col] = 0
-
-        df = df[feature_columns]
-
+        if not input_data:
+            return jsonify({"error": "No data provided"}), 400
+        
+        # Preprocess input
+        features = preprocess_input(input_data)
+        
         # Make prediction
-        pred_encoded = model.predict(df)
-        predictions = label_encoder.inverse_transform(pred_encoded)
-
-        return jsonify({"predictions": predictions.tolist()})
-
+        predictions_encoded = model.predict(features)
+        predictions = label_encoder.inverse_transform(predictions_encoded)
+        
+        # Format response
+        results = []
+        for i, pred in enumerate(predictions):
+            result = {
+                "prediction": pred,
+                "home_team": input_data[i]['home_team'] if isinstance(input_data, list) else input_data['home_team'],
+                "away_team": input_data[i]['away_team'] if isinstance(input_data, list) else input_data['away_team'],
+                "confidence": float(np.max(model.predict_proba(features)[i]))  # Add confidence score
+            }
+            results.append(result)
+        
+        return jsonify({
+            "success": True,
+            "results": results if isinstance(input_data, list) else results[0]
+        })
+        
     except Exception as e:
-        print("🔥 ERROR during prediction:")
-        traceback.print_exc()
-        return jsonify({"error": str(e)}), 500
+        app.logger.error(f"Prediction error: {str(e)}", exc_info=True)
+        return jsonify({
+            "success": False,
+            "error": "Prediction failed",
+            "message": str(e)
+        }), 500
 
 if __name__ == '__main__':
-    app.run(host="0.0.0.0", port=8000)
+    app.run(host="0.0.0.0", port=8000, debug=True)
