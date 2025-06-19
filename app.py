@@ -1,15 +1,15 @@
 from flask import Flask, request, jsonify
 import joblib
-import numpy as np
 import pandas as pd
+import traceback
 
 app = Flask(__name__)
 
-# Load model and encoder
+# Load model and label encoder
 model = joblib.load('match_outcome_model.pkl')
 label_encoder = joblib.load('label_encoder.pkl')
 
-# Define all expected feature columns (must match model training)
+# Define feature columns (must match those used during training)
 feature_columns = [
     'OddsHome', 'DrawOdds', 'AwayOdds',
     'SofascoreRatingHomeTeam', 'SofascoreRatingAwayTeam',
@@ -53,33 +53,37 @@ feature_columns = [
 
 @app.route('/')
 def home():
-    return "Nyam Nyam Confidence Fire Prediction is 🔥 live."
+    return "✅ Nyam Nyam Confidence Fire Prediction API is live."
 
 @app.route('/predict', methods=['POST'])
 def predict():
     try:
-        input_data = request.get_json()
+        data = request.get_json()
 
-        # Ensure input is a list of dicts
-        if isinstance(input_data, dict):
-            input_data = [input_data]
+        # Log incoming data
+        print("📥 Incoming data:", data)
 
-        df = pd.DataFrame(input_data)
+        if isinstance(data, dict):
+            data = [data]
 
-        # Fill missing expected columns with default values (e.g., 0)
+        df = pd.DataFrame(data)
+
+        # Handle missing columns
         for col in feature_columns:
             if col not in df.columns:
+                print(f"⚠️ Missing column: {col} — filling with 0")
                 df[col] = 0
 
         df = df[feature_columns]
 
-        # Run prediction
-        encoded_preds = model.predict(df)
-        predictions = label_encoder.inverse_transform(encoded_preds)
+        predictions_encoded = model.predict(df)
+        predictions = label_encoder.inverse_transform(predictions_encoded)
 
         return jsonify({"predictions": predictions.tolist()})
 
     except Exception as e:
+        print("❌ An error occurred during prediction:")
+        traceback.print_exc()  # Log full traceback to console
         return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
