@@ -1,16 +1,17 @@
 from flask import Flask, request, jsonify
 import joblib
-import numpy as np
 import pandas as pd
 import re
+import traceback
 
 app = Flask(__name__)
 
-# Load the trained model and label encoder
 model = joblib.load('match_outcome_model.pkl')
 label_encoder = joblib.load('label_encoder.pkl')
 
-# Define all expected feature columns
+# Feature columns
+feature_columns = [...]  # keep as is (your full standardized list)
+
 feature_columns = [
     'OddsHomeTeam', 'DrawOdds', 'OddsAwayTeam',
     'SofascoreRatingHomeTeam', 'SofascoreRatingAwayTeam',
@@ -53,40 +54,21 @@ feature_columns = [
     'H2H_HomeWins', 'H2H_Draws', 'H2H_Losses'
 ]
 
-def compute_h2h_stats(h2h_string, home_team_name):
-    home_wins = draws = losses = 0
-    matches = h2h_string.split(',')
-
+# H2H parsing helper
+def compute_h2h_stats(h2h_str, home_team):
+    home_win, draw, away_win = 0, 0, 0
+    matches = h2h_str.split(',')
     for match in matches:
-        match = match.strip()
-        score_match = re.search(r'\((\d+):(\d+)\)', match)
-        if not score_match:
-            continue
-        home_goals = int(score_match.group(1))
-        away_goals = int(score_match.group(2))
-
-        if f"{home_team_name}" in match.split('vs')[0].strip():
-            # home_team was playing at home
+        score = re.search(r"\((\d+):(\d+)\)", match)
+        if score:
+            home_goals, away_goals = map(int, score.groups())
             if home_goals > away_goals:
-                home_wins += 1
+                home_win += 1
             elif home_goals == away_goals:
-                draws += 1
+                draw += 1
             else:
-                losses += 1
-        else:
-            # home_team was playing away
-            if home_goals < away_goals:
-                home_wins += 1
-            elif home_goals == away_goals:
-                draws += 1
-            else:
-                losses += 1
-
-    return home_wins, draws, losses
-
-@app.route('/')
-def home():
-    return "Nyam Nyam Confidence Fire Prediction is 🔥 live."
+                away_win += 1
+    return home_win, draw, away_win
 
 @app.route('/predict', methods=['POST'])
 def predict():
@@ -97,38 +79,42 @@ def predict():
 
         df = pd.DataFrame(input_data)
 
-        # Check and compute H2H if available
+        # H2H computation
         if 'H2H(Latestooldest)' in df.columns:
-            h2h_home_wins = []
-            h2h_draws = []
-            h2h_losses = []
+            h2h_home_wins, h2h_draws, h2h_losses = [], [], []
             for idx, row in df.iterrows():
-                home_team = row.get("League_Home", "Home")  # Or another field if appropriate
-                h2h_str = row["H2H(Latestooldest)"]
-                wins, draws_, losses = compute_h2h_stats(h2h_str, home_team)
-                h2h_home_wins.append(wins)
-                h2h_draws.append(draws_)
-                h2h_losses.append(losses)
+                try:
+                    home_team = row["HomeTeam"] if "HomeTeam" in row else "Home"
+                    h2h_str = row["H2H(Latestooldest)"]
+                    wins, draws_, losses = compute_h2h_stats(h2h_str, home_team)
+                    h2h_home_wins.append(wins)
+                    h2h_draws.append(draws_)
+                    h2h_losses.append(losses)
+                except Exception:
+                    h2h_home_wins.append(0)
+                    h2h_draws.append(0)
+                    h2h_losses.append(0)
 
-            df['H2H_HomeWins'] = h2h_home_wins
-            df['H2H_Draws'] = h2h_draws
-            df['H2H_Losses'] = h2h_losses
+            df["H2H_HomeWins"] = h2h_home_wins
+            df["H2H_Draws"] = h2h_draws
+            df["H2H_Losses"] = h2h_losses
             df.drop(columns=["H2H(Latestooldest)"], inplace=True)
 
-        # Fill missing columns with 0
+        # Fill missing columns
         for col in feature_columns:
             if col not in df.columns:
                 df[col] = 0
 
         df = df[feature_columns]
 
-        prediction_encoded = model.predict(df)
-        predictions = label_encoder.inverse_transform(prediction_encoded)
+        # Make prediction
+        pred_encoded = model.predict(df)
+        predictions = label_encoder.inverse_transform(pred_encoded)
 
         return jsonify({"predictions": predictions.tolist()})
 
     except Exception as e:
-        import traceback
+        print("🔥 ERROR during prediction:")
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
